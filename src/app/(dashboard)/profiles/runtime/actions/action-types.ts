@@ -117,8 +117,17 @@ export type RuntimeAction =
     | ClickRelativePointAction
     | NoopAction;
 
+import type {
+    DiagnosticAttachment,
+    DiagnosticOverlayMeta,
+} from "../../diagnostics/diagnostic-types";
+
 export interface ActionExecutionResult {
     ok: boolean;
     message?: string;
     evidence?: Record<string, unknown>;
+    /** Optional diagnostic attachments produced during execution. */
+    attachments?: DiagnosticAttachment[];
+    /** Optional diagnostic overlays produced during execution. */
+    overlays?: DiagnosticOverlayMeta[];
 }

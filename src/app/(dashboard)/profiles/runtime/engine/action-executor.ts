@@ -1,5 +1,3 @@
-import fs from "fs/promises";
-import path from "path";
 import type {
     RuntimeAction,
     ActionExecutionResult,
@@ -8,6 +6,14 @@ import type {
 import type { ExecutionContext } from "../scenario/scenario-types";
 import { captureScreenshotArtifact } from "../../diagnostics/artifact/screenshot-helper";
 import { createRelativeClickOverlayArtifacts } from "../actions/click-relative-point";
+import {
+    emitActionDiagnostic,
+    buildRelativeClickOverlay,
+} from "../../diagnostics/diagnostic-helpers";
+import type {
+    DiagnosticAttachment,
+    DiagnosticOverlayMeta,
+} from "../../diagnostics/diagnostic-types";
 
 export interface ActionExecutor {
     execute(
@@ -20,161 +26,197 @@ function isValidRatio(value: number): boolean {
     return Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
-// async function saveScreenshotArtifact(
-//     ctx: ExecutionContext,
-//     label: string,
-// ): Promise<string | undefined> {
-//     if (!ctx.adapter.screenshot) {
-//         return undefined;
-//     }
+function extractTargetId(action: RuntimeAction): string | undefined {
+    switch (action.kind) {
+        case "CLICK":
+        case "CLICK_AND_ADOPT_NEW_PAGE":
+        case "TYPE":
+        case "FOCUS":
+        case "ASSERT_TARGET":
+        case "CLICK_RELATIVE_POINT":
+            return action.target.id;
 
-//     try {
-//         const buffer = await ctx.adapter.screenshot(ctx.signal);
-//         const timestamp = new Date()
-//             .toISOString()
-//             .replace(/:/g, "-")
-//             .replace(/\./g, "-");
+        case "WAIT":
+        case "PRESS_KEY":
+        case "COMPOSITE":
+        case "NOOP":
+            return undefined;
 
-//         const filename = `${timestamp}_${label}_iter${ctx.iteration}.png`;
-//         const dir = path.join(process.cwd(), "artifacts", ctx.scenario.id);
-//         const fullPath = path.join(dir, filename);
-
-//         await fs.mkdir(dir, { recursive: true });
-//         await fs.writeFile(fullPath, buffer);
-
-//         return fullPath;
-//     } catch {
-//         return undefined;
-//     }
-// }
+        default: {
+            const exhaustiveCheck: never = action;
+            return exhaustiveCheck;
+        }
+    }
+}
 
 export class AdapterBackedActionExecutor implements ActionExecutor {
     async execute(
         ctx: ExecutionContext,
         action: RuntimeAction,
     ): Promise<ActionExecutionResult> {
-        switch (action.kind) {
-            case "NOOP":
-                return { ok: true, message: "No operation" };
+        let result: ActionExecutionResult;
 
-            case "WAIT":
-                await ctx.adapter.wait(action.durationMs, ctx.signal);
-                return { ok: true, message: `Waited ${action.durationMs}ms` };
+        try {
+            switch (action.kind) {
+                case "NOOP":
+                    result = { ok: true, message: "No operation" };
+                    break;
 
-            case "CLICK":
-                await ctx.adapter.click(action.target, ctx.signal);
-                return { ok: true, message: `Clicked ${action.target.id}` };
+                case "WAIT":
+                    await ctx.adapter.wait(action.durationMs, ctx.signal);
+                    result = {
+                        ok: true,
+                        message: `Waited ${action.durationMs}ms`,
+                    };
+                    break;
 
-            case "CLICK_AND_ADOPT_NEW_PAGE":
-                if (!ctx.adapter.clickAndAdoptNewPage) {
-                    throw new Error(
-                        "Adapter does not support clickAndAdoptNewPage",
+                case "CLICK":
+                    await ctx.adapter.click(action.target, ctx.signal);
+                    result = {
+                        ok: true,
+                        message: `Clicked ${action.target.id}`,
+                    };
+                    break;
+
+                case "CLICK_AND_ADOPT_NEW_PAGE":
+                    if (!ctx.adapter.clickAndAdoptNewPage) {
+                        throw new Error(
+                            "Adapter does not support clickAndAdoptNewPage",
+                        );
+                    }
+
+                    await ctx.adapter.clickAndAdoptNewPage(
+                        action.target,
+                        ctx.signal,
                     );
+                    result = {
+                        ok: true,
+                        message: `Clicked ${action.target.id} and adopted new page`,
+                    };
+                    break;
+
+                case "TYPE":
+                    await ctx.adapter.type(
+                        action.target,
+                        action.value,
+                        { clearBeforeType: action.clearBeforeType },
+                        ctx.signal,
+                    );
+                    result = {
+                        ok: true,
+                        message: `Typed into ${action.target.id}`,
+                    };
+                    break;
+
+                case "FOCUS":
+                    await ctx.adapter.focus(action.target, ctx.signal);
+                    result = {
+                        ok: true,
+                        message: `Focused ${action.target.id}`,
+                    };
+                    break;
+
+                case "PRESS_KEY":
+                    await ctx.adapter.pressKey(action.key, ctx.signal);
+                    result = { ok: true, message: `Pressed key ${action.key}` };
+                    break;
+
+                case "ASSERT_TARGET": {
+                    const target = await ctx.adapter.queryTarget(
+                        action.target,
+                        ctx.signal,
+                    );
+                    result = {
+                        ok: target.found,
+                        message: target.found
+                            ? `Target ${action.target.id} found`
+                            : `Target ${action.target.id} not found`,
+                        evidence: target.meta,
+                    };
+                    break;
                 }
 
-                await ctx.adapter.clickAndAdoptNewPage(
-                    action.target,
-                    ctx.signal,
-                );
-                return {
-                    ok: true,
-                    message: `Clicked ${action.target.id} and adopted new page`,
-                };
+                case "COMPOSITE": {
+                    const childResults: Array<Record<string, unknown>> = [];
 
-            case "TYPE":
-                await ctx.adapter.type(
-                    action.target,
-                    action.value,
-                    { clearBeforeType: action.clearBeforeType },
-                    ctx.signal,
-                );
-                return { ok: true, message: `Typed into ${action.target.id}` };
+                    for (const childAction of action.actions) {
+                        const childResult = await this.execute(
+                            ctx,
+                            childAction,
+                        );
 
-            case "FOCUS":
-                await ctx.adapter.focus(action.target, ctx.signal);
-                return { ok: true, message: `Focused ${action.target.id}` };
-
-            case "PRESS_KEY":
-                await ctx.adapter.pressKey(action.key, ctx.signal);
-                return { ok: true, message: `Pressed key ${action.key}` };
-
-            case "ASSERT_TARGET": {
-                const target = await ctx.adapter.queryTarget(
-                    action.target,
-                    ctx.signal,
-                );
-                return {
-                    ok: target.found,
-                    message: target.found
-                        ? `Target ${action.target.id} found`
-                        : `Target ${action.target.id} not found`,
-                    evidence: target.meta,
-                };
-            }
-
-            case "COMPOSITE": {
-                const childResults: Array<Record<string, unknown>> = [];
-
-                for (const childAction of action.actions) {
-                    const childResult = await this.execute(ctx, childAction);
-
-                    childResults.push({
-                        actionId: childAction.id,
-                        actionKind: childAction.kind,
-                        ok: childResult.ok,
-                        message: childResult.message,
-                        evidence: childResult.evidence,
-                    });
-
-                    if (!childResult.ok) {
-                        return {
-                            ok: false,
+                        childResults.push({
+                            actionId: childAction.id,
+                            actionKind: childAction.kind,
+                            ok: childResult.ok,
                             message: childResult.message,
+                            evidence: childResult.evidence,
+                        });
+
+                        if (!childResult.ok) {
+                            result = {
+                                ok: false,
+                                message: childResult.message,
+                                evidence: {
+                                    compositeActionId: action.id,
+                                    childResults,
+                                },
+                            };
+                            break;
+                        }
+                    }
+
+                    if (!result!) {
+                        result = {
+                            ok: true,
+                            message: `Composite action ${action.id} completed`,
                             evidence: {
                                 compositeActionId: action.id,
                                 childResults,
                             },
                         };
                     }
+                    break;
                 }
 
-                return {
-                    ok: true,
-                    message: `Composite action ${action.id} completed`,
-                    evidence: {
-                        compositeActionId: action.id,
-                        childResults,
-                    },
-                };
+                case "CLICK_RELATIVE_POINT":
+                    result = await this.executeClickRelativePoint(ctx, action);
+                    break;
+
+                default: {
+                    const exhaustiveCheck: never = action;
+                    throw new Error(
+                        `Unhandled action kind: ${JSON.stringify(exhaustiveCheck)}`,
+                    );
+                }
             }
-            // case "CLICK_RELATIVE_POINT":
-            //     if (!ctx.adapter.clickRelativePoint) {
-            //         throw new Error(
-            //             "Adapter does not support clickRelativePoint",
-            //         );
-            //     }
-
-            //     await ctx.adapter.clickRelativePoint(
-            //         action.target,
-            //         action.xRatio,
-            //         action.yRatio,
-            //         ctx.signal,
-            //     );
-
-            //     return {
-            //         ok: true,
-            //         message: `Clicked relative point (${action.xRatio}, ${action.yRatio}) on ${action.target.id}`,
-            //     };
-            case "CLICK_RELATIVE_POINT":
-                return this.executeClickRelativePoint(ctx, action);
-
-            default: {
-                const exhaustiveCheck: never = action;
-                throw new Error(
-                    `Unhandled action kind: ${JSON.stringify(exhaustiveCheck)}`,
-                );
-            }
+        } catch (error) {
+            result = {
+                ok: false,
+                message: error instanceof Error ? error.message : String(error),
+            };
         }
+
+        // ── Generic Diagnostic Emission ───────────────────────────────────────
+        // Emits a record for every action except NOOP.
+        // Handlers (like ClickRelativePoint) enrich the result with overlays/attachments.
+        if (ctx.diagnostics && action.kind !== "NOOP") {
+            emitActionDiagnostic({
+                collector: ctx.diagnostics,
+                scenarioId: ctx.scenario.id,
+                iteration: ctx.iteration,
+                actionId: action.id,
+                actionKind: action.kind,
+                ok: result.ok,
+                message: result.message,
+                targetId: extractTargetId(action),
+                evidence: result.evidence,
+                attachments: result.attachments,
+                overlays: result.overlays,
+            });
+        }
+
+        return result;
     }
 
     private async executeClickRelativePoint(
@@ -202,6 +244,7 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
             ctx.signal,
         );
 
+        // ── Early exit: target not found ────────────────────────────────────────
         if (!targetState.found) {
             return {
                 ok: false,
@@ -215,6 +258,7 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
             };
         }
 
+        // ── Early exit: target not visible ──────────────────────────────────────
         const requireVisible = action.requireVisible ?? true;
         if (requireVisible && targetState.visible !== true) {
             return {
@@ -230,12 +274,14 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
             };
         }
 
+        // ── Capture before screenshot ────────────────────────────────────────────
         const screenshotBefore = action.screenshotBefore
             ? await captureScreenshotArtifact(ctx, {
                   label: `${action.id}_before_click_relative_point`,
               })
             : undefined;
 
+        // ── Execute click ────────────────────────────────────────────────────────
         const clickEvidence = await ctx.adapter.clickRelativePoint(
             action.target,
             action.xRatio,
@@ -243,12 +289,14 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
             ctx.signal,
         );
 
+        // ── Capture after screenshot ─────────────────────────────────────────────
         const screenshotAfter = action.screenshotAfter
             ? await captureScreenshotArtifact(ctx, {
                   label: `${action.id}_after_click_relative_point`,
               })
             : undefined;
 
+        // ── Render annotated overlays (existing helper — kept as-is) ─────────────
         let beforeAnnotatedPath: string | undefined;
         let afterAnnotatedPath: string | undefined;
 
@@ -288,42 +336,100 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
                 });
             }
         }
+
+        const evidence: Record<string, unknown> = {
+            actionKind: action.kind,
+            targetId: action.target.id,
+            xRatio: action.xRatio,
+            yRatio: action.yRatio,
+            requireVisible,
+            targetPresence: {
+                found: targetState.found,
+                visible: targetState.visible,
+                enabled: targetState.enabled,
+            },
+            click: clickEvidence,
+            screenshotBefore,
+            screenshotAfter,
+            beforeAnnotatedPath,
+            afterAnnotatedPath,
+        };
+
+        // ── Build diagnostic metadata to return ──────────────────────────────────
+        const attachments: DiagnosticAttachment[] = [];
+        const overlays: DiagnosticOverlayMeta[] = [];
+
+        if (screenshotBefore) {
+            attachments.push({
+                role: "screenshot_raw",
+                path: screenshotBefore,
+                description: "before click (raw)",
+            });
+        }
+        if (beforeAnnotatedPath) {
+            attachments.push({
+                role: "screenshot_annotated",
+                path: beforeAnnotatedPath,
+                description: "before click (annotated)",
+            });
+        }
+        if (screenshotAfter) {
+            attachments.push({
+                role: "screenshot_raw",
+                path: screenshotAfter,
+                description: "after click (raw)",
+            });
+        }
+        if (afterAnnotatedPath) {
+            attachments.push({
+                role: "screenshot_annotated",
+                path: afterAnnotatedPath,
+                description: "after click (annotated)",
+            });
+        }
+
+        // Build deferred overlay metadata
+        const rect = clickEvidence?.boundingBox
+            ? {
+                  x: clickEvidence.boundingBox.x,
+                  y: clickEvidence.boundingBox.y,
+                  width: clickEvidence.boundingBox.width,
+                  height: clickEvidence.boundingBox.height,
+              }
+            : undefined;
+
+        const clickPoint = { x: clickEvidence.x, y: clickEvidence.y };
+
+        const overlayBefore = buildRelativeClickOverlay({
+            purpose: "before_action",
+            screenshotPath: screenshotBefore,
+            rect,
+            clickPoint,
+            note: "before click",
+        });
+
+        if (overlayBefore) {
+            overlays.push(overlayBefore);
+        }
+
+        const overlayAfter = buildRelativeClickOverlay({
+            purpose: "after_action",
+            screenshotPath: screenshotAfter,
+            rect,
+            clickPoint,
+            note: "after click",
+        });
+
+        if (overlayAfter) {
+            overlays.push(overlayAfter);
+        }
+
         return {
             ok: true,
             message: `Clicked relative point (${action.xRatio}, ${action.yRatio}) on ${action.target.id}`,
-            evidence: {
-                actionKind: action.kind,
-                targetId: action.target.id,
-                xRatio: action.xRatio,
-                yRatio: action.yRatio,
-                requireVisible,
-                targetPresence: {
-                    found: targetState.found,
-                    visible: targetState.visible,
-                    enabled: targetState.enabled,
-                },
-                click: clickEvidence,
-                screenshotBefore,
-                screenshotAfter,
-                beforeAnnotatedPath,
-                afterAnnotatedPath,
-            },
+            evidence,
+            attachments,
+            overlays,
         };
-        // return {
-        //     ok: true,
-        //     message: `Clicked relative point (${action.xRatio}, ${action.yRatio}) on ${action.target.id}`,
-        //     evidence: {
-        //         actionKind: action.kind,
-        //         targetId: action.target.id,
-        //         targetPresence: {
-        //             found: targetState.found,
-        //             visible: targetState.visible,
-        //             enabled: targetState.enabled,
-        //         },
-        //         click: clickEvidence,
-        //         screenshotBefore,
-        //         screenshotAfter,
-        //     },
-        // };
     }
 }

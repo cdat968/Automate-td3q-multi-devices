@@ -101,6 +101,20 @@ function buildAnnotatedPath(rawPath: string): string {
     return path.join(dir, `${base}_annotated${ext}`);
 }
 
+/**
+ * Transitional backward-compatible helper.
+ *
+ * This helper eagerly renders annotated overlay PNG artifacts for
+ * CLICK_RELATIVE_POINT flows so existing artifact-based debugging continues
+ * to work.
+ *
+ * The long-term shared diagnostics path is the deferred overlays model
+ * carried by DiagnosticRecord.overlays[].
+ *
+ * Do not treat this eager rendering helper as the primary diagnostics
+ * abstraction for new producers.
+ */
+
 export async function createRelativeClickOverlayArtifacts(params: {
     scenarioId: string;
     iteration: number;

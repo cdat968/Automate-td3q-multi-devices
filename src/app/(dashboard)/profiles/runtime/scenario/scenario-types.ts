@@ -8,6 +8,7 @@ import type {
 } from "../actions/action-types";
 import type { DeviceAdapter } from "../adapters/device-adapter";
 import type { TimelineRecorder } from "../timeline/timeline-recorder";
+import type { DiagnosticCollector } from "../../diagnostics/diagnostic-collector";
 
 export interface ExecutionContext {
     adapter: DeviceAdapter;
@@ -16,6 +17,12 @@ export interface ExecutionContext {
     variables: Record<string, string>;
     iteration: number;
     signal?: AbortSignal;
+    /**
+     * Optional shared diagnostics collector.
+     * Producers (detector, action executor) emit structured DiagnosticRecords here.
+     * Omitting it is safe — all emit calls are guarded with optional chaining.
+     */
+    diagnostics?: DiagnosticCollector;
 }
 
 export interface TransitionGuardResult {
@@ -47,10 +54,12 @@ export interface ScenarioTransition {
     ) => Promise<boolean>;
 }
 
+import type { StateDetectionResult } from "../../diagnostics/diagnostic-types";
+
 export interface StateDetectionRule {
     id: string;
     state: RuntimeStateId;
-    detect: (ctx: ExecutionContext) => Promise<boolean>;
+    detect: (ctx: ExecutionContext) => Promise<boolean | StateDetectionResult>;
     confidence?: number;
     meta?: Record<string, unknown>;
 }

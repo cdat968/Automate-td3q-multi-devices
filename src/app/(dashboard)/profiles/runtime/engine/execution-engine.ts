@@ -1,5 +1,3 @@
-import fs from "fs/promises";
-import path from "path";
 import type { DeviceAdapter } from "../adapters/device-adapter";
 import type { TimelineRecorder } from "../timeline/timeline-recorder";
 import type { RuntimeStateSnapshot } from "../state/runtime-state";
@@ -11,6 +9,8 @@ import type { StateDetector } from "./state-detector";
 import type { TransitionResolver } from "./transition-resolver";
 import type { ActionExecutor } from "./action-executor";
 import type { ExecutionEngineConfig } from "./engine-config";
+import type { DiagnosticCollector } from "../../diagnostics/diagnostic-collector";
+import { captureScreenshotArtifact } from "../../diagnostics/artifact/screenshot-helper";
 import {
     EngineAbortedError,
     EngineIdleLimitError,
@@ -23,6 +23,12 @@ export interface ExecutionEngineRunInput {
     timeline: TimelineRecorder;
     variables?: Record<string, string>;
     signal?: AbortSignal;
+    /**
+     * Optional diagnostics collector.
+     * When provided, detector and action producers emit structured
+     * DiagnosticRecords in addition to timeline events.
+     */
+    diagnostics?: DiagnosticCollector;
 }
 
 export interface ExecutionEngineRunResult {
@@ -55,6 +61,7 @@ export class ExecutionEngine {
             variables: input.variables ?? {},
             iteration: 0,
             signal: input.signal,
+            diagnostics: input.diagnostics,
         };
 
         const stateDetector = this.stateDetectorFactory(input.scenario);
@@ -273,6 +280,11 @@ export class ExecutionEngine {
         }
     }
 
+    /**
+     * Captures a failure screenshot via the shared artifact helper.
+     * Returns the artifact path on success, or a structured error object
+     * on failure — same shape as before, for backward compatibility.
+     */
     private async captureEvidence(
         ctx: ExecutionContext,
         reason: string,
@@ -282,25 +294,10 @@ export class ExecutionEngine {
         }
 
         try {
-            const buffer = await ctx.adapter.screenshot(ctx.signal);
-
-            const timestamp = new Date()
-                .toISOString()
-                .replace(/:/g, "-")
-                .replace(/\./g, "-");
-
-            const filename = `${timestamp}_${reason}_iter${ctx.iteration}.png`;
-
-            const dir = path.join(process.cwd(), "artifacts", ctx.scenario.id);
-            const fullPath = path.join(dir, filename);
-
-            await fs.mkdir(dir, { recursive: true });
-
-            await fs.writeFile(fullPath, buffer);
-
-            return {
-                screenshotPath: fullPath,
-            };
+            const screenshotPath = await captureScreenshotArtifact(ctx, {
+                label: reason,
+            });
+            return screenshotPath ? { screenshotPath } : undefined;
         } catch (error) {
             return {
                 screenshotError:

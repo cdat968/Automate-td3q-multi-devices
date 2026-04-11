@@ -2,6 +2,7 @@ import type { ScenarioDefinition } from "../scenario-types";
 import type { RuntimeTargetRef } from "../../actions/action-types";
 import { matchTemplateMultiScale } from "../../vision/template-matcher";
 import { templates } from "../../vision/templates";
+import { captureScreenshotArtifact } from "../../../diagnostics/artifact/screenshot-helper";
 
 const targets = {
     emailInput: {
@@ -105,19 +106,25 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                     templates.attendanceClose,
                 );
 
-                ctx.timeline.record({
-                    type: "STATE_RULE_EVALUATED",
-                    timestamp: new Date().toISOString(),
-                    iteration: ctx.iteration,
-                    state: { id: "UNKNOWN", confidence: 0 },
-                    message: `ATTENDANCE POPUP CHECK => ${result.matched ? "MATCH" : "MISS"} (${result.score.toFixed(3)})`,
-                    meta: {
-                        score: result.score,
-                        location: result.location,
-                    },
+                // Lưu raw screenshot thành artifact để detector side có thể render annotated PNG
+                const screenshotPath = await captureScreenshotArtifact(ctx, {
+                    label: "detect_attendance_popup_open",
                 });
 
-                return result.matched;
+                return {
+                    matched: result.matched,
+                    confidence: result.score,
+                    matchBox: result.location
+                        ? {
+                              x: result.location.x,
+                              y: result.location.y,
+                              width: result.location.width ?? 0,
+                              height: result.location.height ?? 0,
+                          }
+                        : undefined,
+                    screenshotPath,
+                    message: `ATTENDANCE POPUP CHECK => ${result.matched ? "MATCH" : "MISS"} (${result.score.toFixed(3)})`,
+                };
             },
         },
 
