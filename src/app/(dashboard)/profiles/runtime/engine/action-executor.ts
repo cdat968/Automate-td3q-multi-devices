@@ -6,6 +6,8 @@ import type {
     ClickRelativePointAction,
 } from "../actions/action-types";
 import type { ExecutionContext } from "../scenario/scenario-types";
+import { captureScreenshotArtifact } from "../../diagnostics/artifact/screenshot-helper";
+import { createRelativeClickOverlayArtifacts } from "../actions/click-relative-point";
 
 export interface ActionExecutor {
     execute(
@@ -18,33 +20,33 @@ function isValidRatio(value: number): boolean {
     return Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
-async function saveScreenshotArtifact(
-    ctx: ExecutionContext,
-    label: string,
-): Promise<string | undefined> {
-    if (!ctx.adapter.screenshot) {
-        return undefined;
-    }
+// async function saveScreenshotArtifact(
+//     ctx: ExecutionContext,
+//     label: string,
+// ): Promise<string | undefined> {
+//     if (!ctx.adapter.screenshot) {
+//         return undefined;
+//     }
 
-    try {
-        const buffer = await ctx.adapter.screenshot(ctx.signal);
-        const timestamp = new Date()
-            .toISOString()
-            .replace(/:/g, "-")
-            .replace(/\./g, "-");
+//     try {
+//         const buffer = await ctx.adapter.screenshot(ctx.signal);
+//         const timestamp = new Date()
+//             .toISOString()
+//             .replace(/:/g, "-")
+//             .replace(/\./g, "-");
 
-        const filename = `${timestamp}_${label}_iter${ctx.iteration}.png`;
-        const dir = path.join(process.cwd(), "artifacts", ctx.scenario.id);
-        const fullPath = path.join(dir, filename);
+//         const filename = `${timestamp}_${label}_iter${ctx.iteration}.png`;
+//         const dir = path.join(process.cwd(), "artifacts", ctx.scenario.id);
+//         const fullPath = path.join(dir, filename);
 
-        await fs.mkdir(dir, { recursive: true });
-        await fs.writeFile(fullPath, buffer);
+//         await fs.mkdir(dir, { recursive: true });
+//         await fs.writeFile(fullPath, buffer);
 
-        return fullPath;
-    } catch {
-        return undefined;
-    }
-}
+//         return fullPath;
+//     } catch {
+//         return undefined;
+//     }
+// }
 
 export class AdapterBackedActionExecutor implements ActionExecutor {
     async execute(
@@ -229,10 +231,9 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
         }
 
         const screenshotBefore = action.screenshotBefore
-            ? await saveScreenshotArtifact(
-                  ctx,
-                  `${action.id}_before_click_relative_point`,
-              )
+            ? await captureScreenshotArtifact(ctx, {
+                  label: `${action.id}_before_click_relative_point`,
+              })
             : undefined;
 
         const clickEvidence = await ctx.adapter.clickRelativePoint(
@@ -243,18 +244,59 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
         );
 
         const screenshotAfter = action.screenshotAfter
-            ? await saveScreenshotArtifact(
-                  ctx,
-                  `${action.id}_after_click_relative_point`,
-              )
+            ? await captureScreenshotArtifact(ctx, {
+                  label: `${action.id}_after_click_relative_point`,
+              })
             : undefined;
 
+        let beforeAnnotatedPath: string | undefined;
+        let afterAnnotatedPath: string | undefined;
+
+        if (screenshotBefore || screenshotAfter) {
+            try {
+                const overlayArtifacts =
+                    await createRelativeClickOverlayArtifacts({
+                        scenarioId: ctx.scenario.id,
+                        iteration: ctx.iteration,
+                        actionId: action.id,
+                        actionKind: action.kind,
+                        targetStateMeta: targetState.meta,
+                        clickEvidence,
+                        xRatio: action.xRatio,
+                        yRatio: action.yRatio,
+                        beforeRawPath: screenshotBefore,
+                        afterRawPath: screenshotAfter,
+                    });
+
+                beforeAnnotatedPath = overlayArtifacts.beforeAnnotatedPath;
+                afterAnnotatedPath = overlayArtifacts.afterAnnotatedPath;
+            } catch (error) {
+                ctx.timeline.record({
+                    type: "ACTION_EXECUTION_FAILED",
+                    timestamp: new Date().toISOString(),
+                    iteration: ctx.iteration,
+                    state: { id: "UNKNOWN", confidence: 0 },
+                    message: `Overlay render failed for ${action.id}`,
+                    meta: {
+                        error:
+                            error instanceof Error
+                                ? error.message
+                                : String(error),
+                        actionId: action.id,
+                        actionKind: action.kind,
+                    },
+                });
+            }
+        }
         return {
             ok: true,
             message: `Clicked relative point (${action.xRatio}, ${action.yRatio}) on ${action.target.id}`,
             evidence: {
                 actionKind: action.kind,
                 targetId: action.target.id,
+                xRatio: action.xRatio,
+                yRatio: action.yRatio,
+                requireVisible,
                 targetPresence: {
                     found: targetState.found,
                     visible: targetState.visible,
@@ -263,7 +305,25 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
                 click: clickEvidence,
                 screenshotBefore,
                 screenshotAfter,
+                beforeAnnotatedPath,
+                afterAnnotatedPath,
             },
         };
+        // return {
+        //     ok: true,
+        //     message: `Clicked relative point (${action.xRatio}, ${action.yRatio}) on ${action.target.id}`,
+        //     evidence: {
+        //         actionKind: action.kind,
+        //         targetId: action.target.id,
+        //         targetPresence: {
+        //             found: targetState.found,
+        //             visible: targetState.visible,
+        //             enabled: targetState.enabled,
+        //         },
+        //         click: clickEvidence,
+        //         screenshotBefore,
+        //         screenshotAfter,
+        //     },
+        // };
     }
 }

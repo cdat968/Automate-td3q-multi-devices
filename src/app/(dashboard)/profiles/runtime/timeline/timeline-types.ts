@@ -15,6 +15,7 @@ export type TimelineEventType =
     | "ENGINE_COMPLETED"
     | "ENGINE_ABORTED"
     | "ENGINE_FAILED"
+    | "ACTION_EXECUTION_FAILED"
     | "TRANSITION_CANDIDATES";
 
 export interface TimelineEvent {

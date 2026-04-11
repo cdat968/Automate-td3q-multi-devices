@@ -33,6 +33,30 @@ export interface ClickRelativePointAction extends RuntimeActionBase {
     screenshotBefore?: boolean;
     screenshotAfter?: boolean;
 }
+// export interface ClickRelativePointAction extends RuntimeActionBase {
+//     actionKind: "CLICK_RELATIVE_POINT";
+//     targetId: string;
+
+//     clickedPoint: {
+//         x: number;
+//         y: number;
+//     };
+
+//     targetBox?: {
+//         x: number;
+//         y: number;
+//         width: number;
+//         height: number;
+//     };
+
+//     artifacts?: {
+//         beforeRawPath?: string;
+//         afterRawPath?: string;
+//         beforeOverlayPath?: string;
+//         afterOverlayPath?: string;
+//         jsonPath?: string;
+//     };
+// }
 
 export interface ClickAction extends RuntimeActionBase {
     kind: "CLICK";
