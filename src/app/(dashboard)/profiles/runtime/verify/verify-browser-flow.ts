@@ -11,6 +11,7 @@ import { AdapterBackedActionExecutor } from "../engine/action-executor";
 
 import { InMemoryTimelineRecorder } from "../timeline/timeline-console-reporter";
 import { td3qBrowserScenario } from "../scenario/builtins/td3q-browser-scenario";
+import { InMemoryDiagnosticCollector } from "../../diagnostics/diagnostic-collector";
 
 async function verifyBrowserFlow(): Promise<number> {
     const user = process.env.TEST_USER;
@@ -39,6 +40,7 @@ async function verifyBrowserFlow(): Promise<number> {
 
     const adapter = new BrowserRuntimeAdapter(session);
     const timeline = new InMemoryTimelineRecorder();
+    const diagnostics = new InMemoryDiagnosticCollector();
 
     const engine = new ExecutionEngine(
         (scenario) => new RuleBasedStateDetector(scenario.detectionRules),
@@ -59,9 +61,12 @@ async function verifyBrowserFlow(): Promise<number> {
             adapter,
             scenario: td3qBrowserScenario,
             timeline,
+            diagnostics,
             variables: {
                 TEST_USER: user,
                 TEST_PASS: pass,
+                ATTENDANCE_VERIFY_ARMED: "false",
+                ATTENDANCE_VERIFY_ARMED_AT_ITERATION: "",
             },
         });
 

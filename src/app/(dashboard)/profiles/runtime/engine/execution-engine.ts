@@ -29,6 +29,7 @@ export interface ExecutionEngineRunInput {
      * DiagnosticRecords in addition to timeline events.
      */
     diagnostics?: DiagnosticCollector;
+    setVariable?: (key: string, value: string) => void;
 }
 
 export interface ExecutionEngineRunResult {
@@ -54,14 +55,18 @@ export class ExecutionEngine {
     async run(
         input: ExecutionEngineRunInput,
     ): Promise<ExecutionEngineRunResult> {
+        const variables = input.variables ?? {};
         const ctx: ExecutionContext = {
             adapter: input.adapter,
             timeline: input.timeline,
             scenario: input.scenario,
-            variables: input.variables ?? {},
+            variables,
             iteration: 0,
             signal: input.signal,
             diagnostics: input.diagnostics,
+            setVariable: (key: string, value: string) => {
+                variables[key] = value;
+            },
         };
 
         const stateDetector = this.stateDetectorFactory(input.scenario);

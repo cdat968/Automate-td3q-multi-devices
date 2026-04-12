@@ -94,9 +94,28 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             id: "detect-attendance-popup-open",
             state: "ATTENDANCE_POPUP_OPEN",
             async detect(ctx) {
+                if (ctx.variables.ATTENDANCE_VERIFY_ARMED !== "true") {
+                    return {
+                        matched: false,
+                        message: "attendance_verify_not_armed",
+                        meta: {
+                            armed: false,
+                        },
+                    };
+                }
+
                 if (!ctx.adapter.screenshot) return false;
 
                 const screenshot = await ctx.adapter.screenshot(ctx.signal);
+                // const player = await ctx.adapter.queryTarget(
+                //     targets.gameHost,
+                //     ctx.signal,
+                // );
+                // if (!player.found || player.visible !== true) {
+                //     return false;
+                // }
+                // if (!ctx.adapter.screenshot) return false;
+
                 const buffer = Buffer.isBuffer(screenshot)
                     ? screenshot
                     : Buffer.from(screenshot);
@@ -111,7 +130,21 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                     label: "detect_attendance_popup_open",
                 });
 
-                return {
+                // return {
+                //     matched: result.matched,
+                //     confidence: result.score,
+                //     matchBox: result.location
+                //         ? {
+                //               x: result.location.x,
+                //               y: result.location.y,
+                //               width: result.location.width ?? 0,
+                //               height: result.location.height ?? 0,
+                //           }
+                //         : undefined,
+                //     screenshotPath,
+                //     message: `ATTENDANCE POPUP CHECK => ${result.matched ? "MATCH" : "MISS"} (${result.score.toFixed(3)})`,
+                // };
+                const detectionResult = {
                     matched: result.matched,
                     confidence: result.score,
                     matchBox: result.location
@@ -124,7 +157,14 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                         : undefined,
                     screenshotPath,
                     message: `ATTENDANCE POPUP CHECK => ${result.matched ? "MATCH" : "MISS"} (${result.score.toFixed(3)})`,
+                    meta: {
+                        armed: true,
+                        armedAtIteration:
+                            ctx.variables.ATTENDANCE_VERIFY_ARMED_AT_ITERATION,
+                    },
                 };
+
+                return detectionResult;
             },
         },
 

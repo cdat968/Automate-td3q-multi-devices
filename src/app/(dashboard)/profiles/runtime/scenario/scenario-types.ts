@@ -23,6 +23,11 @@ export interface ExecutionContext {
      * Omitting it is safe — all emit calls are guarded with optional chaining.
      */
     diagnostics?: DiagnosticCollector;
+    /**
+     * Runtime variable mutation hook for orchestration-style flags.
+     * Use sparingly for scenario-level verification gates.
+     */
+    setVariable?: (key: string, value: string) => void;
 }
 
 export interface TransitionGuardResult {

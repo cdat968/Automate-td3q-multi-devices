@@ -424,6 +424,15 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
             overlays.push(overlayAfter);
         }
 
+        // Arm attendance verification only after the attendance hotspot click succeeds.
+        if (action.id === "click-attendance-hotspot" && ctx.setVariable) {
+            ctx.setVariable("ATTENDANCE_VERIFY_ARMED", "true");
+            ctx.setVariable(
+                "ATTENDANCE_VERIFY_ARMED_AT_ITERATION",
+                String(ctx.iteration),
+            );
+        }
+
         return {
             ok: true,
             message: `Clicked relative point (${action.xRatio}, ${action.yRatio}) on ${action.target.id}`,
