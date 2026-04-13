@@ -17,6 +17,21 @@ interface PointLike {
     y: number;
 }
 
+interface CreateClickOverlayArtifactsInput {
+    scenarioId: string;
+    iteration: number;
+    actionId: string;
+    actionKind: string;
+    rect?: RectLike;
+    clickPoint?: PointLike;
+    beforeRawPath?: string;
+    afterRawPath?: string;
+    beforeNote?: string;
+    afterNote?: string;
+    targetLabel?: string;
+    clickLabel?: string;
+}
+
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value);
 }
@@ -99,6 +114,103 @@ function buildAnnotatedPath(rawPath: string): string {
     const ext = path.extname(rawPath);
     const base = path.basename(rawPath, ext);
     return path.join(dir, `${base}_annotated${ext}`);
+}
+
+export async function createClickOverlayArtifacts(
+    params: CreateClickOverlayArtifactsInput,
+): Promise<{
+    beforeAnnotatedPath?: string;
+    afterAnnotatedPath?: string;
+}> {
+    const shapes = [];
+
+    if (params.rect) {
+        shapes.push({
+            type: "box" as const,
+            x: params.rect.x,
+            y: params.rect.y,
+            width: params.rect.width,
+            height: params.rect.height,
+            color: "yellow" as const,
+            label: params.targetLabel ?? "target",
+            lineWidth: 3,
+        });
+    }
+
+    if (params.clickPoint) {
+        shapes.push({
+            type: "point" as const,
+            x: params.clickPoint.x,
+            y: params.clickPoint.y,
+            color: "red" as const,
+            label: params.clickLabel ?? "click",
+            radius: 6,
+        });
+    }
+
+    if (!params.rect && !params.clickPoint) {
+        shapes.push({
+            type: "text" as const,
+            x: 20,
+            y: 90,
+            text: "No target bounds/click point available",
+            color: "white" as const,
+            fontSize: 14,
+            background: true,
+        });
+    }
+
+    const payloadBase: Omit<OverlayPayload, "meta"> = {
+        shapes,
+    };
+
+    let beforeAnnotatedPath: string | undefined;
+    let afterAnnotatedPath: string | undefined;
+
+    if (params.beforeRawPath) {
+        beforeAnnotatedPath = buildAnnotatedPath(params.beforeRawPath);
+        await ensureParentDir(beforeAnnotatedPath);
+
+        await renderOverlayImage({
+            screenshotPath: params.beforeRawPath,
+            outputPath: beforeAnnotatedPath,
+            payload: {
+                ...payloadBase,
+                meta: {
+                    scenarioId: params.scenarioId,
+                    iteration: params.iteration,
+                    actionId: params.actionId,
+                    actionKind: params.actionKind,
+                    note: params.beforeNote ?? "before click",
+                },
+            },
+        });
+    }
+
+    if (params.afterRawPath) {
+        afterAnnotatedPath = buildAnnotatedPath(params.afterRawPath);
+        await ensureParentDir(afterAnnotatedPath);
+
+        await renderOverlayImage({
+            screenshotPath: params.afterRawPath,
+            outputPath: afterAnnotatedPath,
+            payload: {
+                ...payloadBase,
+                meta: {
+                    scenarioId: params.scenarioId,
+                    iteration: params.iteration,
+                    actionId: params.actionId,
+                    actionKind: params.actionKind,
+                    note: params.afterNote ?? "after click",
+                },
+            },
+        });
+    }
+
+    return {
+        beforeAnnotatedPath,
+        afterAnnotatedPath,
+    };
 }
 
 /**
@@ -225,10 +337,20 @@ export async function createRelativeClickOverlayArtifacts(params: {
         });
     }
 
-    return {
-        beforeAnnotatedPath,
-        afterAnnotatedPath,
-    };
+    return createClickOverlayArtifacts({
+        scenarioId: params.scenarioId,
+        iteration: params.iteration,
+        actionId: params.actionId,
+        actionKind: params.actionKind,
+        rect,
+        clickPoint,
+        beforeRawPath: params.beforeRawPath,
+        afterRawPath: params.afterRawPath,
+        beforeNote: "before click",
+        afterNote: "after click",
+        targetLabel: "target",
+        clickLabel: "click",
+    });
 }
 // export interface RelativePointBox {
 //     x: number;

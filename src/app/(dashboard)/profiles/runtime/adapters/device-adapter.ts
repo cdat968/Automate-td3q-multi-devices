@@ -29,7 +29,11 @@ export interface DeviceAdapter {
         target: RuntimeTargetRef,
         signal?: AbortSignal,
     ): Promise<void>;
+
     click(target: RuntimeTargetRef, signal?: AbortSignal): Promise<void>;
+
+    clickPoint?(x: number, y: number, signal?: AbortSignal): Promise<void>;
+
     type(
         target: RuntimeTargetRef,
         value: string,

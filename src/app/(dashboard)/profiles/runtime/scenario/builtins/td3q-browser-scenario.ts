@@ -3,6 +3,7 @@ import type { RuntimeTargetRef } from "../../actions/action-types";
 import { matchTemplateMultiScale } from "../../vision/template-matcher";
 import { templates } from "../../vision/templates";
 import { captureScreenshotArtifact } from "../../../diagnostics/artifact/screenshot-helper";
+import { buildDetectorMatchOverlays } from "../../../diagnostics/diagnostic-helpers";
 
 const targets = {
     emailInput: {
@@ -74,6 +75,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
     idleIterationLimit: 5,
 
     detectionRules: [
+        //login page
         {
             id: "detect-login-page",
             state: "LOGIN_PAGE",
@@ -167,7 +169,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 return detectionResult;
             },
         },
-
+        //game error
         {
             id: "detect-game-error",
             state: "GAME_ERROR",
@@ -181,6 +183,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 return false;
             },
         },
+        //In-game
         {
             id: "detect-game-running",
             state: "GAME_RUNNING",
@@ -199,7 +202,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 );
             },
         },
-
+        // warning page
         {
             id: "detect-warning-page",
             state: "WARNING_PAGE",
@@ -211,7 +214,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 return warning.found;
             },
         },
-
+        //list serser
         {
             id: "detect-dashboard-server-list-open",
             state: "DASHBOARD_SERVER_LIST_OPEN",
@@ -227,6 +230,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 return play.found && serverListItem.found;
             },
         },
+        //dashboard idle
         {
             id: "detect-dashboard-idle",
             state: "DASHBOARD_IDLE",
@@ -387,37 +391,6 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             },
         },
 
-        // {
-        //     id: "settle-before-attendance",
-        //     from: "GAME_RUNNING",
-        //     to: "SELF",
-        //     priority: 10,
-        //     async canRun(ctx) {
-        //         // Chỉ settle nếu popup attendance chưa mở
-        //         if (targets.attendancePopupClose.locator?.trim()) {
-        //             const close = await ctx.adapter.queryTarget(
-        //                 targets.attendancePopupClose,
-        //                 ctx.signal,
-        //             );
-        //             if (close.found) {
-        //                 return {
-        //                     allowed: false,
-        //                     reason: "Attendance popup already open",
-        //                 };
-        //             }
-        //         }
-
-        //         return { allowed: true };
-        //     },
-        //     async buildAction() {
-        //         return {
-        //             id: "action-settle-before-attendance",
-        //             kind: "WAIT",
-        //             durationMs: 2500,
-        //         };
-        //     },
-        // },
-
         {
             id: "open-attendance-popup",
             from: "GAME_RUNNING",
@@ -461,13 +434,71 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                         },
                         {
                             id: "click-attendance-hotspot",
-                            kind: "CLICK_RELATIVE_POINT",
-                            target: targets.gameHost,
-                            xRatio: 0.7826,
-                            yRatio: 0.2218,
-                            requireVisible: true,
+                            kind: "CLICK_FROM_DETECTION",
                             screenshotBefore: true,
                             screenshotAfter: true,
+                            detectTarget: async (ctx) => {
+                                if (!ctx.adapter.screenshot) {
+                                    return {
+                                        matched: false,
+                                        message: "screenshot_not_supported",
+                                    };
+                                }
+
+                                const raw = await ctx.adapter.screenshot(
+                                    ctx.signal,
+                                );
+                                const buffer = Buffer.isBuffer(raw)
+                                    ? raw
+                                    : Buffer.from(raw);
+
+                                const result = matchTemplateMultiScale(
+                                    buffer,
+                                    templates.attendanceIcon,
+                                    {
+                                        roi: {
+                                            xRatio: 0.68,
+                                            yRatio: 0.08,
+                                            widthRatio: 0.22,
+                                            heightRatio: 0.22,
+                                        },
+                                        threshold: 0.75,
+                                        scales: [0.85, 0.9, 1.0, 1.1],
+                                    },
+                                );
+                                console.log(
+                                    "Attendance icon detection result:",
+                                    result.score,
+                                );
+
+                                const screenshotPath =
+                                    await captureScreenshotArtifact(ctx, {
+                                        label: "detect_attendance_icon",
+                                    });
+
+                                const matchBox = result.location
+                                    ? {
+                                          x: result.location.x,
+                                          y: result.location.y,
+                                          width: result.location.width ?? 0,
+                                          height: result.location.height ?? 0,
+                                      }
+                                    : undefined;
+
+                                return {
+                                    matched: result.matched,
+                                    confidence: result.score,
+                                    matchBox,
+                                    screenshotPath,
+                                    overlays: buildDetectorMatchOverlays({
+                                        screenshotPath,
+                                        matchBox,
+                                        score: result.score,
+                                        label: "attendance-icon",
+                                    }),
+                                    message: `ATTENDANCE ICON => ${result.matched ? "MATCH" : "MISS"} (${result.score.toFixed(3)})`,
+                                };
+                            },
                         },
                         {
                             id: "wait-attendance-popup",

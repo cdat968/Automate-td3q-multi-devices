@@ -63,6 +63,18 @@ export class BrowserRuntimeAdapter implements DeviceAdapter {
         await this.session.click(resolved, signal);
     }
 
+    async clickPoint(
+        x: number,
+        y: number,
+        signal?: AbortSignal,
+    ): Promise<void> {
+        if (!this.session.clickPoint) {
+            throw new Error("BrowserSession does not support clickPoint");
+        }
+
+        await this.session.clickPoint(x, y, signal);
+    }
+
     async clickAndAdoptNewPage(
         target: RuntimeTargetRef,
         signal?: AbortSignal,

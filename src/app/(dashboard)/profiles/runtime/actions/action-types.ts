@@ -8,7 +8,32 @@ export type RuntimeActionKind =
     | "FOCUS"
     | "ASSERT_TARGET"
     | "CLICK_RELATIVE_POINT"
+    | "CLICK_FROM_DETECTION"
     | "COMPOSITE";
+
+export interface DetectionTargetResult {
+    matched: boolean;
+    confidence?: number;
+    matchBox?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+    screenshotPath?: string;
+    message?: string;
+    attachments?: DiagnosticAttachment[];
+    overlays?: DiagnosticOverlayMeta[];
+    meta?: Record<string, unknown>;
+}
+
+export interface ClickFromDetectionAction extends RuntimeActionBase {
+    kind: "CLICK_FROM_DETECTION";
+    detectTarget: (ctx: ExecutionContext) => Promise<DetectionTargetResult>;
+    requireMatch?: boolean;
+    screenshotBefore?: boolean;
+    screenshotAfter?: boolean;
+}
 
 export interface RuntimeTargetRef {
     id: string;
@@ -115,12 +140,14 @@ export type RuntimeAction =
     | AssertTargetAction
     | CompositeAction
     | ClickRelativePointAction
+    | ClickFromDetectionAction
     | NoopAction;
 
 import type {
     DiagnosticAttachment,
     DiagnosticOverlayMeta,
 } from "../../diagnostics/diagnostic-types";
+import { ExecutionContext } from "../scenario/scenario-types";
 
 export interface ActionExecutionResult {
     ok: boolean;

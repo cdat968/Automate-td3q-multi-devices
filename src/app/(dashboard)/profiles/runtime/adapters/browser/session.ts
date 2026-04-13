@@ -29,6 +29,8 @@ export interface BrowserSession {
 
     click(target: ResolvedBrowserTarget, signal?: AbortSignal): Promise<void>;
 
+    clickPoint?(x: number, y: number, signal?: AbortSignal): Promise<void>;
+
     type(
         target: ResolvedBrowserTarget,
         value: string,

@@ -2,10 +2,14 @@ import type {
     RuntimeAction,
     ActionExecutionResult,
     ClickRelativePointAction,
+    ClickFromDetectionAction,
 } from "../actions/action-types";
 import type { ExecutionContext } from "../scenario/scenario-types";
 import { captureScreenshotArtifact } from "../../diagnostics/artifact/screenshot-helper";
-import { createRelativeClickOverlayArtifacts } from "../actions/click-relative-point";
+import {
+    createClickOverlayArtifacts,
+    createRelativeClickOverlayArtifacts,
+} from "../actions/click-relative-point";
 import {
     emitActionDiagnostic,
     buildRelativeClickOverlay,
@@ -26,6 +30,18 @@ function isValidRatio(value: number): boolean {
     return Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
+function getBoxCenter(box: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}): { x: number; y: number } {
+    return {
+        x: Math.round(box.x + box.width / 2),
+        y: Math.round(box.y + box.height / 2),
+    };
+}
+
 function extractTargetId(action: RuntimeAction): string | undefined {
     switch (action.kind) {
         case "CLICK":
@@ -35,6 +51,8 @@ function extractTargetId(action: RuntimeAction): string | undefined {
         case "ASSERT_TARGET":
         case "CLICK_RELATIVE_POINT":
             return action.target.id;
+        case "CLICK_FROM_DETECTION":
+            return action.label ?? action.id;
 
         case "WAIT":
         case "PRESS_KEY":
@@ -181,6 +199,9 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
 
                 case "CLICK_RELATIVE_POINT":
                     result = await this.executeClickRelativePoint(ctx, action);
+                    break;
+                case "CLICK_FROM_DETECTION":
+                    result = await this.executeClickFromDetection(ctx, action);
                     break;
 
                 default: {
@@ -424,6 +445,51 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
             overlays.push(overlayAfter);
         }
 
+        return {
+            ok: true,
+            message: `Clicked relative point (${action.xRatio}, ${action.yRatio}) on ${action.target.id}`,
+            evidence,
+            attachments,
+            overlays,
+        };
+    }
+
+    private async executeClickFromDetection(
+        ctx: ExecutionContext,
+        action: ClickFromDetectionAction,
+    ): Promise<ActionExecutionResult> {
+        if (!ctx.adapter.clickPoint) {
+            throw new Error("Adapter does not support clickPoint");
+        }
+
+        const detection = await action.detectTarget(ctx);
+
+        if (!detection.matched || !detection.matchBox) {
+            return {
+                ok: false,
+                message:
+                    detection.message ??
+                    `Detection target not found for action ${action.id}`,
+                evidence: {
+                    actionKind: action.kind,
+                    detectionMatched: detection.matched,
+                    detectionMeta: detection.meta,
+                },
+                attachments: detection.attachments,
+                overlays: detection.overlays,
+            };
+        }
+
+        const clickPoint = getBoxCenter(detection.matchBox);
+
+        const screenshotBefore = action.screenshotBefore
+            ? await captureScreenshotArtifact(ctx, {
+                  label: `${action.id}_before_click_from_detection`,
+              })
+            : undefined;
+
+        await ctx.adapter.clickPoint(clickPoint.x, clickPoint.y, ctx.signal);
+
         // Arm attendance verification only after the attendance hotspot click succeeds.
         if (action.id === "click-attendance-hotspot" && ctx.setVariable) {
             ctx.setVariable("ATTENDANCE_VERIFY_ARMED", "true");
@@ -433,10 +499,165 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
             );
         }
 
+        const screenshotAfter = action.screenshotAfter
+            ? await captureScreenshotArtifact(ctx, {
+                  label: `${action.id}_after_click_from_detection`,
+              })
+            : undefined;
+
+        // ── Render annotated overlays for CLICK_FROM_DETECTION ────────────────
+        let beforeAnnotatedPath: string | undefined;
+        let afterAnnotatedPath: string | undefined;
+
+        try {
+            const overlayArtifacts = await createClickOverlayArtifacts({
+                scenarioId: ctx.scenario.id,
+                iteration: ctx.iteration,
+                actionId: action.id,
+                actionKind: action.kind,
+                rect: detection.matchBox
+                    ? {
+                          x: detection.matchBox.x,
+                          y: detection.matchBox.y,
+                          width: detection.matchBox.width,
+                          height: detection.matchBox.height,
+                      }
+                    : undefined,
+                clickPoint,
+                beforeRawPath: screenshotBefore,
+                afterRawPath: screenshotAfter,
+                beforeNote: "before click from detection",
+                afterNote: "after click from detection",
+                targetLabel: "detected-target",
+                clickLabel: "click-center",
+            });
+
+            beforeAnnotatedPath = overlayArtifacts.beforeAnnotatedPath;
+            afterAnnotatedPath = overlayArtifacts.afterAnnotatedPath;
+        } catch (error) {
+            ctx.timeline.record({
+                type: "ACTION_EXECUTION_FAILED",
+                timestamp: new Date().toISOString(),
+                iteration: ctx.iteration,
+                state: { id: "UNKNOWN", confidence: 0 },
+                message: `Overlay render failed for ${action.id}`,
+                meta: {
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                    actionId: action.id,
+                    actionKind: action.kind,
+                },
+            });
+        }
+
+        const attachments: DiagnosticAttachment[] = [
+            ...(detection.attachments ?? []),
+        ];
+        const overlays: DiagnosticOverlayMeta[] = [
+            ...(detection.overlays ?? []),
+        ];
+
+        if (screenshotBefore) {
+            attachments.push({
+                role: "screenshot_raw",
+                path: screenshotBefore,
+                description: "before click-from-detection (raw)",
+            });
+        }
+
+        if (screenshotAfter) {
+            attachments.push({
+                role: "screenshot_raw",
+                path: screenshotAfter,
+                description: "after click-from-detection (raw)",
+            });
+        }
+
+        if (beforeAnnotatedPath) {
+            attachments.push({
+                role: "screenshot_annotated",
+                path: beforeAnnotatedPath,
+                description: "before click-from-detection (annotated)",
+            });
+        }
+
+        if (afterAnnotatedPath) {
+            attachments.push({
+                role: "screenshot_annotated",
+                path: afterAnnotatedPath,
+                description: "after click-from-detection (annotated)",
+            });
+        }
+
+        if (screenshotBefore) {
+            overlays.push({
+                purpose: "before_action",
+                screenshotPath: screenshotBefore,
+                shapes: [
+                    {
+                        type: "box",
+                        x: detection.matchBox.x,
+                        y: detection.matchBox.y,
+                        width: detection.matchBox.width,
+                        height: detection.matchBox.height,
+                        color: "yellow",
+                        label: "detected-target",
+                        lineWidth: 3,
+                    },
+                    {
+                        type: "point",
+                        x: clickPoint.x,
+                        y: clickPoint.y,
+                        color: "red",
+                        label: "click-center",
+                        radius: 6,
+                    },
+                ],
+                renderNote: "before click from detection",
+            });
+        }
+
+        if (screenshotAfter) {
+            overlays.push({
+                purpose: "after_action",
+                screenshotPath: screenshotAfter,
+                shapes: [
+                    {
+                        type: "box",
+                        x: detection.matchBox.x,
+                        y: detection.matchBox.y,
+                        width: detection.matchBox.width,
+                        height: detection.matchBox.height,
+                        color: "yellow",
+                        label: "detected-target",
+                        lineWidth: 3,
+                    },
+                    {
+                        type: "point",
+                        x: clickPoint.x,
+                        y: clickPoint.y,
+                        color: "red",
+                        label: "click-center",
+                        radius: 6,
+                    },
+                ],
+                renderNote: "after click from detection",
+            });
+        }
+
         return {
             ok: true,
-            message: `Clicked relative point (${action.xRatio}, ${action.yRatio}) on ${action.target.id}`,
-            evidence,
+            message: `Clicked detection target center at (${clickPoint.x}, ${clickPoint.y})`,
+            evidence: {
+                actionKind: action.kind,
+                detectionMatched: detection.matched,
+                confidence: detection.confidence,
+                matchBox: detection.matchBox,
+                clickPoint,
+                detectionMeta: detection.meta,
+                screenshotBefore,
+                screenshotAfter,
+            },
             attachments,
             overlays,
         };

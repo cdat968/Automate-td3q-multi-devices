@@ -129,6 +129,25 @@ export class PersistentChromiumSession implements BrowserSession {
         await page.click(target.selector);
     }
 
+    async clickPoint(
+        x: number,
+        y: number,
+        signal?: AbortSignal,
+    ): Promise<void> {
+        throwIfAborted(signal);
+        const page = await this.ensureContext();
+        const dpr = await this.getDevicePixelRatio();
+
+        const cssX = x / dpr;
+        const cssY = y / dpr;
+
+        console.log(
+            `[PersistentChromiumSession] Absolute click at image=(${x}, ${y}) css=(${cssX.toFixed(1)}, ${cssY.toFixed(1)}) dpr=${dpr}`,
+        );
+
+        await page.mouse.click(cssX, cssY);
+    }
+
     async type(
         target: ResolvedBrowserTarget,
         value: string,
@@ -305,5 +324,10 @@ export class PersistentChromiumSession implements BrowserSession {
                 height: box.height,
             },
         };
+    }
+
+    private async getDevicePixelRatio(): Promise<number> {
+        const page = await this.ensureContext();
+        return await page.evaluate(() => window.devicePixelRatio || 1);
     }
 }
