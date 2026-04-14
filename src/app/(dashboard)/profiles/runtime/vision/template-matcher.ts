@@ -122,3 +122,13 @@ export function matchTemplateMultiScale(
         },
     };
 }
+
+export function cropRoiFromScreenshot(
+    screenshotBuffer: Buffer,
+    roi: TemplateMatchRoi,
+): Buffer {
+    const screenshot = cv.imdecode(screenshotBuffer);
+    const roiRect = resolveRoiRect(screenshot, roi);
+    const cropped = screenshot.getRegion(roiRect);
+    return cv.imencode(".png", cropped);
+}

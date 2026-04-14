@@ -94,6 +94,7 @@ const attendancePopupDetector = createTemplateMatchDetector({
     buildMeta: ({ ctx }) => ({
         armed: true,
         armedAtIteration: ctx.variables.ATTENDANCE_VERIFY_ARMED_AT_ITERATION,
+        retryAttempt: Number(ctx.variables.ATTENDANCE_RETRY_COUNT ?? "0"),
     }),
 });
 

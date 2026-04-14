@@ -1,3 +1,4 @@
+import path from "path";
 import type {
     RuntimeAction,
     ActionExecutionResult,
@@ -18,6 +19,7 @@ import type {
     DiagnosticAttachment,
     DiagnosticOverlayMeta,
 } from "../../diagnostics/diagnostic-types";
+import { renderOverlayImage } from "../../diagnostics/overlay/overlay-renderer";
 
 export interface ActionExecutor {
     execute(
@@ -454,6 +456,56 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
         };
     }
 
+    private async renderDetectionOverlayArtifacts(params: {
+        overlays?: DiagnosticOverlayMeta[];
+        scenarioId: string;
+        iteration: number;
+        detectorLabel: string;
+    }): Promise<DiagnosticAttachment[]> {
+        const attachments: DiagnosticAttachment[] = [];
+
+        if (!params.overlays || params.overlays.length === 0) {
+            return attachments;
+        }
+
+        for (const overlay of params.overlays) {
+            if (!overlay.screenshotPath || overlay.shapes.length === 0) {
+                continue;
+            }
+
+            const ext = path.extname(overlay.screenshotPath);
+            const base = path.basename(overlay.screenshotPath, ext);
+            const dir = path.dirname(overlay.screenshotPath);
+
+            const outputPath = path.join(
+                dir,
+                `${base}_${overlay.purpose}_annotated${ext}`,
+            );
+
+            await renderOverlayImage({
+                screenshotPath: overlay.screenshotPath,
+                outputPath,
+                payload: {
+                    meta: {
+                        scenarioId: params.scenarioId,
+                        iteration: params.iteration,
+                        detector: params.detectorLabel,
+                        note: overlay.renderNote ?? overlay.purpose,
+                    },
+                    shapes: overlay.shapes,
+                },
+            });
+
+            attachments.push({
+                role: "screenshot_annotated",
+                path: outputPath,
+                description: `detector annotated (${overlay.purpose}) for ${params.detectorLabel}`,
+            });
+        }
+
+        return attachments;
+    }
+
     private async executeClickFromDetection(
         ctx: ExecutionContext,
         action: ClickFromDetectionAction,
@@ -556,6 +608,21 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
         const overlays: DiagnosticOverlayMeta[] = [
             ...(detection.overlays ?? []),
         ];
+
+        const detectorLabel =
+            typeof detection.meta?.detectorId === "string"
+                ? detection.meta.detectorId
+                : (action.label ?? action.id);
+
+        const detectorOverlayAttachments =
+            await this.renderDetectionOverlayArtifacts({
+                overlays: detection.overlays,
+                scenarioId: ctx.scenario.id,
+                iteration: ctx.iteration,
+                detectorLabel,
+            });
+
+        attachments.push(...detectorOverlayAttachments);
 
         if (screenshotBefore) {
             attachments.push({

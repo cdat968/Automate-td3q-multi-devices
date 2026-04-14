@@ -1,9 +1,14 @@
-import { matchTemplateMultiScale } from "./template-matcher";
+import {
+    cropRoiFromScreenshot,
+    matchTemplateMultiScale,
+} from "./template-matcher";
 import { captureScreenshotArtifact } from "../../diagnostics/artifact/screenshot-helper";
 import { buildDetectorMatchOverlays } from "../../diagnostics/diagnostic-overlay-builders";
-
-import type { ExecutionContext } from "../scenario/scenario-types";
 import { StateDetectionResult } from "../../diagnostics/diagnostic-types";
+import { writeBufferArtifact } from "../../diagnostics/artifact/artifact-writer";
+import { buildArtifactPath } from "../../diagnostics/artifact/artifact-path";
+import type { DiagnosticAttachment } from "../../diagnostics/diagnostic-types";
+import type { ExecutionContext } from "../scenario/scenario-types";
 
 export interface TemplateMatchDetectorConfig {
     detectorId: string;
@@ -62,6 +67,10 @@ function resolveScoreBand(score: number, threshold: number): DetectorScoreBand {
     return "low";
 }
 
+function buildDetectorRunId(detectorId: string, ctx: ExecutionContext): string {
+    return `${detectorId}_iter${ctx.iteration}_${Date.now().toString(36)}`;
+}
+
 export function createTemplateMatchDetector(
     config: TemplateMatchDetectorConfig,
 ) {
@@ -82,6 +91,8 @@ export function createTemplateMatchDetector(
                 };
             }
         }
+
+        const detectorRunId = buildDetectorRunId(config.detectorId, ctx);
 
         if (!ctx.adapter.screenshot) {
             return {
@@ -113,6 +124,42 @@ export function createTemplateMatchDetector(
         const screenshotPath = await captureScreenshotArtifact(ctx, {
             label: config.screenshotLabel ?? config.detectorId,
         });
+
+        const attachments: DiagnosticAttachment[] = [];
+
+        if (screenshotPath) {
+            attachments.push({
+                role: "screenshot_raw",
+                path: screenshotPath,
+                description: `detector screenshot for ${config.detectorId}`,
+            });
+        }
+
+        let roiArtifactPath: string | undefined;
+
+        if (config.roi) {
+            const roiBuffer = cropRoiFromScreenshot(buffer, config.roi);
+            const timestamp = new Date()
+                .toISOString()
+                .replace(/:/g, "-")
+                .replace(/\./g, "-");
+
+            roiArtifactPath = buildArtifactPath({
+                scenarioId: ctx.scenario.id,
+                timestamp,
+                label: `${config.screenshotLabel ?? config.detectorId}_roi`,
+                iteration: ctx.iteration,
+                extension: "png",
+            });
+
+            await writeBufferArtifact(roiArtifactPath, roiBuffer);
+
+            attachments.push({
+                role: "screenshot_roi",
+                path: roiArtifactPath,
+                description: `roi crop for ${config.detectorId}`,
+            });
+        }
 
         const matchBox = result.location
             ? {
@@ -170,6 +217,7 @@ export function createTemplateMatchDetector(
             confidence: result.score,
             matchBox,
             screenshotPath,
+            attachments,
             overlays,
             message:
                 config.buildMessage?.({
@@ -181,6 +229,7 @@ export function createTemplateMatchDetector(
                 } (${result.score.toFixed(3)})`,
             meta: {
                 detectorId: config.detectorId,
+                detectorRunId,
                 rawScore: result.score,
                 thresholdUsed,
                 scoreBand,
