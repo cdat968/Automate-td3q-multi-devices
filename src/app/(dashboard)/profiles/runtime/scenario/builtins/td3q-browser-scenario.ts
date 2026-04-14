@@ -1,9 +1,7 @@
 import type { ScenarioDefinition } from "../scenario-types";
 import type { RuntimeTargetRef } from "../../actions/action-types";
-import { matchTemplateMultiScale } from "../../vision/template-matcher";
 import { templates } from "../../vision/templates";
-import { captureScreenshotArtifact } from "../../../diagnostics/artifact/screenshot-helper";
-import { buildDetectorMatchOverlays } from "../../../diagnostics/diagnostic-helpers";
+import { createTemplateMatchDetector } from "../../vision/create-template-match-detector";
 
 const targets = {
     emailInput: {
@@ -67,6 +65,38 @@ const targets = {
     } satisfies RuntimeTargetRef,
 };
 
+const attendanceIconDetector = createTemplateMatchDetector({
+    detectorId: "attendance-icon",
+    template: templates.attendanceIcon,
+    screenshotLabel: "detect_attendance_icon",
+    overlayLabel: "attendance-icon",
+    threshold: 0.75,
+    scales: [0.85, 0.9, 1.0, 1.1],
+    roi: {
+        xRatio: 0.68,
+        yRatio: 0.08,
+        widthRatio: 0.22,
+        heightRatio: 0.22,
+    },
+    buildMessage: ({ matched, score }) =>
+        `ATTENDANCE ICON => ${matched ? "MATCH" : "MISS"} (${score.toFixed(3)})`,
+});
+
+const attendancePopupDetector = createTemplateMatchDetector({
+    detectorId: "attendance-popup-close",
+    template: templates.attendanceClose,
+    screenshotLabel: "detect_attendance_popup_open",
+    overlayLabel: "attendance-popup",
+    shouldRun: (ctx) => ctx.variables.ATTENDANCE_VERIFY_ARMED === "true",
+    skipReason: "attendance_verify_not_armed",
+    buildMessage: ({ matched, score }) =>
+        `ATTENDANCE POPUP CHECK => ${matched ? "MATCH" : "MISS"} (${score.toFixed(3)})`,
+    buildMeta: ({ ctx }) => ({
+        armed: true,
+        armedAtIteration: ctx.variables.ATTENDANCE_VERIFY_ARMED_AT_ITERATION,
+    }),
+});
+
 export const td3qBrowserScenario: ScenarioDefinition = {
     id: "td3q-browser",
     name: "TD3Q Browser Scenario",
@@ -96,77 +126,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             id: "detect-attendance-popup-open",
             state: "ATTENDANCE_POPUP_OPEN",
             async detect(ctx) {
-                if (ctx.variables.ATTENDANCE_VERIFY_ARMED !== "true") {
-                    return {
-                        matched: false,
-                        message: "attendance_verify_not_armed",
-                        meta: {
-                            armed: false,
-                        },
-                    };
-                }
-
-                if (!ctx.adapter.screenshot) return false;
-
-                const screenshot = await ctx.adapter.screenshot(ctx.signal);
-                // const player = await ctx.adapter.queryTarget(
-                //     targets.gameHost,
-                //     ctx.signal,
-                // );
-                // if (!player.found || player.visible !== true) {
-                //     return false;
-                // }
-                // if (!ctx.adapter.screenshot) return false;
-
-                const buffer = Buffer.isBuffer(screenshot)
-                    ? screenshot
-                    : Buffer.from(screenshot);
-
-                const result = matchTemplateMultiScale(
-                    buffer,
-                    templates.attendanceClose,
-                );
-
-                // Lưu raw screenshot thành artifact để detector side có thể render annotated PNG
-                const screenshotPath = await captureScreenshotArtifact(ctx, {
-                    label: "detect_attendance_popup_open",
-                });
-
-                // return {
-                //     matched: result.matched,
-                //     confidence: result.score,
-                //     matchBox: result.location
-                //         ? {
-                //               x: result.location.x,
-                //               y: result.location.y,
-                //               width: result.location.width ?? 0,
-                //               height: result.location.height ?? 0,
-                //           }
-                //         : undefined,
-                //     screenshotPath,
-                //     message: `ATTENDANCE POPUP CHECK => ${result.matched ? "MATCH" : "MISS"} (${result.score.toFixed(3)})`,
-                // };
-                const detectionResult = {
-                    matched: result.matched,
-                    confidence: result.score,
-                    matchBox: result.location
-                        ? {
-                              x: result.location.x,
-                              y: result.location.y,
-                              width: result.location.width ?? 0,
-                              height: result.location.height ?? 0,
-                          }
-                        : undefined,
-                    screenshotPath,
-                    message: `ATTENDANCE POPUP CHECK => ${result.matched ? "MATCH" : "MISS"} (${result.score.toFixed(3)})`,
-                    meta: {
-                        armed: true,
-                        armedAtIteration:
-                            ctx.variables.ATTENDANCE_VERIFY_ARMED_AT_ITERATION,
-                    },
-                };
-
-                return detectionResult;
+                return attendancePopupDetector.detect(ctx);
             },
         },
         //game error
@@ -433,72 +393,11 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                             target: targets.gameHost,
                         },
                         {
-                            id: "click-attendance-hotspot",
                             kind: "CLICK_FROM_DETECTION",
+                            id: "click-attendance-hotspot",
                             screenshotBefore: true,
                             screenshotAfter: true,
-                            detectTarget: async (ctx) => {
-                                if (!ctx.adapter.screenshot) {
-                                    return {
-                                        matched: false,
-                                        message: "screenshot_not_supported",
-                                    };
-                                }
-
-                                const raw = await ctx.adapter.screenshot(
-                                    ctx.signal,
-                                );
-                                const buffer = Buffer.isBuffer(raw)
-                                    ? raw
-                                    : Buffer.from(raw);
-
-                                const result = matchTemplateMultiScale(
-                                    buffer,
-                                    templates.attendanceIcon,
-                                    {
-                                        roi: {
-                                            xRatio: 0.68,
-                                            yRatio: 0.08,
-                                            widthRatio: 0.22,
-                                            heightRatio: 0.22,
-                                        },
-                                        threshold: 0.75,
-                                        scales: [0.85, 0.9, 1.0, 1.1],
-                                    },
-                                );
-                                console.log(
-                                    "Attendance icon detection result:",
-                                    result.score,
-                                );
-
-                                const screenshotPath =
-                                    await captureScreenshotArtifact(ctx, {
-                                        label: "detect_attendance_icon",
-                                    });
-
-                                const matchBox = result.location
-                                    ? {
-                                          x: result.location.x,
-                                          y: result.location.y,
-                                          width: result.location.width ?? 0,
-                                          height: result.location.height ?? 0,
-                                      }
-                                    : undefined;
-
-                                return {
-                                    matched: result.matched,
-                                    confidence: result.score,
-                                    matchBox,
-                                    screenshotPath,
-                                    overlays: buildDetectorMatchOverlays({
-                                        screenshotPath,
-                                        matchBox,
-                                        score: result.score,
-                                        label: "attendance-icon",
-                                    }),
-                                    message: `ATTENDANCE ICON => ${result.matched ? "MATCH" : "MISS"} (${result.score.toFixed(3)})`,
-                                };
-                            },
+                            detectTarget: attendanceIconDetector.detect,
                         },
                         {
                             id: "wait-attendance-popup",

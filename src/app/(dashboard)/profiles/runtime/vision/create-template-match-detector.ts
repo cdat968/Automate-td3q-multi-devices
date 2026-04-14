@@ -1,0 +1,140 @@
+import { matchTemplateMultiScale } from "./template-matcher";
+import { captureScreenshotArtifact } from "../../diagnostics/artifact/screenshot-helper";
+import { buildDetectorMatchOverlays } from "../../diagnostics/diagnostic-overlay-builders";
+
+import type { ExecutionContext } from "../scenario/scenario-types";
+import type { DetectionTargetResult } from "../actions/action-types";
+
+export interface TemplateMatchDetectorConfig {
+    detectorId: string;
+    template: Buffer;
+
+    screenshotLabel?: string;
+    overlayLabel?: string;
+
+    threshold?: number;
+    scales?: number[];
+
+    roi?: {
+        xRatio: number;
+        yRatio: number;
+        widthRatio: number;
+        heightRatio: number;
+    };
+
+    shouldRun?: (ctx: ExecutionContext) => boolean | Promise<boolean>;
+
+    skipReason?: string | ((ctx: ExecutionContext) => string | Promise<string>);
+
+    buildMessage?: (args: { matched: boolean; score: number }) => string;
+
+    buildMeta?: (args: {
+        matched: boolean;
+        score: number;
+        ctx: ExecutionContext;
+    }) => Record<string, unknown>;
+}
+
+async function resolveSkipReason(
+    ctx: ExecutionContext,
+    skipReason?: TemplateMatchDetectorConfig["skipReason"],
+): Promise<string> {
+    if (!skipReason) {
+        return "detector_skipped_by_context_gate";
+    }
+
+    return typeof skipReason === "function"
+        ? await skipReason(ctx)
+        : skipReason;
+}
+
+export function createTemplateMatchDetector(
+    config: TemplateMatchDetectorConfig,
+) {
+    async function detect(
+        ctx: ExecutionContext,
+    ): Promise<DetectionTargetResult> {
+        if (config.shouldRun) {
+            const allowed = await config.shouldRun(ctx);
+
+            if (!allowed) {
+                return {
+                    matched: false,
+                    message: await resolveSkipReason(ctx, config.skipReason),
+                    meta: {
+                        skipped: true,
+                        detectorId: config.detectorId,
+                    },
+                };
+            }
+        }
+
+        if (!ctx.adapter.screenshot) {
+            return {
+                matched: false,
+                message: "screenshot_not_supported",
+                meta: {
+                    skipped: false,
+                    detectorId: config.detectorId,
+                },
+            };
+        }
+
+        const raw = await ctx.adapter.screenshot(ctx.signal);
+        const buffer = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+
+        const result = matchTemplateMultiScale(buffer, config.template, {
+            roi: config.roi,
+            threshold: config.threshold,
+            scales: config.scales,
+        });
+
+        const screenshotPath = await captureScreenshotArtifact(ctx, {
+            label: config.screenshotLabel ?? config.detectorId,
+        });
+
+        const matchBox = result.location
+            ? {
+                  x: result.location.x,
+                  y: result.location.y,
+                  width: result.location.width ?? 0,
+                  height: result.location.height ?? 0,
+              }
+            : undefined;
+
+        const overlays = buildDetectorMatchOverlays({
+            screenshotPath,
+            matchBox,
+            score: result.score,
+            label: config.overlayLabel ?? config.detectorId,
+        });
+
+        return {
+            matched: result.matched,
+            confidence: result.score,
+            matchBox,
+            screenshotPath,
+            overlays,
+            message:
+                config.buildMessage?.({
+                    matched: result.matched,
+                    score: result.score,
+                }) ??
+                `${config.detectorId} => ${
+                    result.matched ? "MATCH" : "MISS"
+                } (${result.score.toFixed(3)})`,
+            meta: {
+                detectorId: config.detectorId,
+                ...(config.buildMeta?.({
+                    matched: result.matched,
+                    score: result.score,
+                    ctx,
+                }) ?? {}),
+            },
+        };
+    }
+
+    return {
+        detect,
+    };
+}
