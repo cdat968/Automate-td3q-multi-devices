@@ -11,22 +11,6 @@ export type RuntimeActionKind =
     | "CLICK_FROM_DETECTION"
     | "COMPOSITE";
 
-export interface DetectionTargetResult {
-    matched: boolean;
-    confidence?: number;
-    matchBox?: {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-    };
-    screenshotPath?: string;
-    message?: string;
-    attachments?: DiagnosticAttachment[];
-    overlays?: DiagnosticOverlayMeta[];
-    meta?: Record<string, unknown>;
-}
-
 export interface ClickFromDetectionAction extends RuntimeActionBase {
     kind: "CLICK_FROM_DETECTION";
     detectTarget: (ctx: ExecutionContext) => Promise<DetectionTargetResult>;
@@ -146,8 +130,11 @@ export type RuntimeAction =
 import type {
     DiagnosticAttachment,
     DiagnosticOverlayMeta,
+    StateDetectionResult,
 } from "../../diagnostics/diagnostic-types";
 import { ExecutionContext } from "../scenario/scenario-types";
+
+export type DetectionTargetResult = StateDetectionResult;
 
 export interface ActionExecutionResult {
     ok: boolean;

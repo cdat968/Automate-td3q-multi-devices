@@ -3,7 +3,7 @@ import { captureScreenshotArtifact } from "../../diagnostics/artifact/screenshot
 import { buildDetectorMatchOverlays } from "../../diagnostics/diagnostic-overlay-builders";
 
 import type { ExecutionContext } from "../scenario/scenario-types";
-import type { DetectionTargetResult } from "../actions/action-types";
+import { StateDetectionResult } from "../../diagnostics/diagnostic-types";
 
 export interface TemplateMatchDetectorConfig {
     detectorId: string;
@@ -53,7 +53,7 @@ export function createTemplateMatchDetector(
 ) {
     async function detect(
         ctx: ExecutionContext,
-    ): Promise<DetectionTargetResult> {
+    ): Promise<StateDetectionResult> {
         if (config.shouldRun) {
             const allowed = await config.shouldRun(ctx);
 
