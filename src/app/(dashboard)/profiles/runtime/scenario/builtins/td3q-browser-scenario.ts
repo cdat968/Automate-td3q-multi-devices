@@ -95,6 +95,14 @@ const attendancePopupDetector = createTemplateMatchDetector({
         armed: true,
         armedAtIteration: ctx.variables.ATTENDANCE_VERIFY_ARMED_AT_ITERATION,
         retryAttempt: Number(ctx.variables.ATTENDANCE_RETRY_COUNT ?? "0"),
+        sourceClickIteration: Number(
+            ctx.variables.ATTENDANCE_LAST_CLICK_AT_ITERATION ?? "0",
+        ),
+        sourceDetectorRunId:
+            ctx.variables.ATTENDANCE_LAST_CLICK_SOURCE_DETECTOR_RUN_ID,
+        sourceRetryAttempt: Number(
+            ctx.variables.ATTENDANCE_LAST_CLICK_RETRY_ATTEMPT ?? "0",
+        ),
     }),
 });
 

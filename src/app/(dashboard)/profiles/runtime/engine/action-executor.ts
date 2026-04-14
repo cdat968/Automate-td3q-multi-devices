@@ -549,6 +549,28 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
                 "ATTENDANCE_VERIFY_ARMED_AT_ITERATION",
                 String(ctx.iteration),
             );
+
+            ctx.setVariable(
+                "ATTENDANCE_LAST_CLICK_AT_ITERATION",
+                String(ctx.iteration),
+            );
+
+            if (typeof detection.meta?.detectorRunId === "string") {
+                ctx.setVariable(
+                    "ATTENDANCE_LAST_CLICK_SOURCE_DETECTOR_RUN_ID",
+                    detection.meta.detectorRunId,
+                );
+            }
+
+            if (
+                detection.meta?.retryAttempt !== undefined &&
+                detection.meta?.retryAttempt !== null
+            ) {
+                ctx.setVariable(
+                    "ATTENDANCE_LAST_CLICK_RETRY_ATTEMPT",
+                    String(detection.meta.retryAttempt),
+                );
+            }
         }
 
         const screenshotAfter = action.screenshotAfter
@@ -722,6 +744,12 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
                 matchBox: detection.matchBox,
                 clickPoint,
                 detectionMeta: detection.meta,
+                correlation: {
+                    sourceDetectorId: detection.meta?.detectorId,
+                    sourceDetectorRunId: detection.meta?.detectorRunId,
+                    retryAttempt: detection.meta?.retryAttempt,
+                    clickIteration: ctx.iteration,
+                },
                 screenshotBefore,
                 screenshotAfter,
             },
