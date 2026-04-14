@@ -48,6 +48,20 @@ async function resolveSkipReason(
         : skipReason;
 }
 
+type DetectorScoreBand = "high" | "near_threshold" | "low";
+
+function resolveScoreBand(score: number, threshold: number): DetectorScoreBand {
+    if (score >= threshold + 0.08) {
+        return "high";
+    }
+
+    if (score >= threshold - 0.03) {
+        return "near_threshold";
+    }
+
+    return "low";
+}
+
 export function createTemplateMatchDetector(
     config: TemplateMatchDetectorConfig,
 ) {
@@ -83,11 +97,18 @@ export function createTemplateMatchDetector(
         const raw = await ctx.adapter.screenshot(ctx.signal);
         const buffer = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
 
+        const thresholdUsed = config.threshold ?? 0.83;
+
         const result = matchTemplateMultiScale(buffer, config.template, {
             roi: config.roi,
             threshold: config.threshold,
             scales: config.scales,
         });
+
+        const scoreBand = resolveScoreBand(result.score, thresholdUsed);
+        const distanceToThreshold = Number(
+            (result.score - thresholdUsed).toFixed(4),
+        );
 
         const screenshotPath = await captureScreenshotArtifact(ctx, {
             label: config.screenshotLabel ?? config.detectorId,
@@ -109,6 +130,41 @@ export function createTemplateMatchDetector(
             label: config.overlayLabel ?? config.detectorId,
         });
 
+        if (screenshotPath && result.roiRect) {
+            overlays.push({
+                purpose: "debug_view",
+                screenshotPath,
+                shapes: [
+                    {
+                        type: "box",
+                        x: result.roiRect.x,
+                        y: result.roiRect.y,
+                        width: result.roiRect.width,
+                        height: result.roiRect.height,
+                        color: "blue",
+                        label: "detector-roi",
+                        lineWidth: 2,
+                    },
+                    ...(matchBox
+                        ? [
+                              {
+                                  type: "box" as const,
+                                  x: matchBox.x,
+                                  y: matchBox.y,
+                                  width: matchBox.width,
+                                  height: matchBox.height,
+                                  color: "green" as const,
+                                  label:
+                                      config.overlayLabel ?? config.detectorId,
+                                  lineWidth: 3,
+                              },
+                          ]
+                        : []),
+                ],
+                renderNote: "roi + match view",
+            });
+        }
+
         return {
             matched: result.matched,
             confidence: result.score,
@@ -125,6 +181,10 @@ export function createTemplateMatchDetector(
                 } (${result.score.toFixed(3)})`,
             meta: {
                 detectorId: config.detectorId,
+                rawScore: result.score,
+                thresholdUsed,
+                scoreBand,
+                distanceToThreshold,
                 ...(config.buildMeta?.({
                     matched: result.matched,
                     score: result.score,
