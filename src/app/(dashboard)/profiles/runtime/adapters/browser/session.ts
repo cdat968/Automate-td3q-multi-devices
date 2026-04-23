@@ -30,6 +30,7 @@ export interface BrowserSession {
     click(target: ResolvedBrowserTarget, signal?: AbortSignal): Promise<void>;
 
     clickPoint?(x: number, y: number, signal?: AbortSignal): Promise<void>;
+    movePointer?(x: number, y: number, signal?: AbortSignal): Promise<void>;
 
     type(
         target: ResolvedBrowserTarget,
@@ -85,6 +86,15 @@ export class NodeBrowserSession implements BrowserSession {
         console.log(
             `[BrowserSession] Clicking and adopting new page: ${target.selector} (${target.strategy})`,
         );
+    }
+
+    async movePointer(
+        x: number,
+        y: number,
+        signal?: AbortSignal,
+    ): Promise<void> {
+        throwIfAborted(signal);
+        console.log(`[BrowserSession] Moving pointer to: (${x}, ${y})`);
     }
 
     async click(

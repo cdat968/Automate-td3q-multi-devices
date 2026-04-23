@@ -4,44 +4,20 @@ import type { ResolvedBrowserTarget } from "./resolver";
 import { RuntimeTargetRef } from "../../actions/action-types";
 import { DeviceAdapter, TargetPresenceResult } from "../device-adapter";
 
-// export interface RuntimeTargetRef {
-//     id: string;
-//     kind: "dom" | "canvas" | "visual" | "native";
-//     locator?: string;
-//     strategy?: "css" | "xpath";
-//     meta?: Record<string, unknown>;
-// }
-
-// export interface TargetPresenceResult {
-//     found: boolean;
-//     visible?: boolean;
-//     enabled?: boolean;
-//     value?: string | null;
-//     text?: string | null;
-//     meta?: Record<string, unknown>;
-// }
-
-// export interface RuntimeDeviceAdapter {
-//     click(target: RuntimeTargetRef, signal?: AbortSignal): Promise<void>;
-//     type(
-//         target: RuntimeTargetRef,
-//         value: string,
-//         options?: { clearBeforeType?: boolean },
-//         signal?: AbortSignal,
-//     ): Promise<void>;
-//     focus(target: RuntimeTargetRef, signal?: AbortSignal): Promise<void>;
-//     pressKey(key: string, signal?: AbortSignal): Promise<void>;
-//     wait(durationMs: number, signal?: AbortSignal): Promise<void>;
-//     queryTarget(
-//         target: RuntimeTargetRef,
-//         signal?: AbortSignal,
-//     ): Promise<TargetPresenceResult>;
-//     navigate(url: string, signal?: AbortSignal): Promise<void>;
-//     screenshot?(signal?: AbortSignal): Promise<Uint8Array | Buffer>;
-// }
-
 export class BrowserRuntimeAdapter implements DeviceAdapter {
     constructor(private readonly session: BrowserSession) {}
+
+    async movePointer(
+        xRatio: number,
+        yRatio: number,
+        signal?: AbortSignal,
+    ): Promise<void> {
+        if (!this.session.movePointer) {
+            throw new Error("BrowserSession does not support movePointer");
+        }
+
+        await this.session.movePointer(xRatio, yRatio, signal);
+    }
 
     async clickRelativePoint(
         target: RuntimeTargetRef,

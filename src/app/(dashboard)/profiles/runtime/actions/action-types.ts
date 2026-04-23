@@ -9,7 +9,16 @@ export type RuntimeActionKind =
     | "ASSERT_TARGET"
     | "CLICK_RELATIVE_POINT"
     | "CLICK_FROM_DETECTION"
+    | "MOVE_RELATIVE_POINT"
     | "COMPOSITE";
+
+export interface MoveRelativePointAction extends RuntimeActionBase {
+    id: string;
+    kind: "MOVE_RELATIVE_POINT";
+    xRatio: number;
+    yRatio: number;
+    description?: string;
+}
 
 export interface ClickFromDetectionAction extends RuntimeActionBase {
     kind: "CLICK_FROM_DETECTION";
@@ -125,6 +134,7 @@ export type RuntimeAction =
     | CompositeAction
     | ClickRelativePointAction
     | ClickFromDetectionAction
+    | MoveRelativePointAction
     | NoopAction;
 
 import type {

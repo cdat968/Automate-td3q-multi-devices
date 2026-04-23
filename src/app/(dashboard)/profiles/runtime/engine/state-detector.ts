@@ -159,6 +159,62 @@ export class RuleBasedStateDetector implements StateDetector {
         return raw;
     }
 
+    // private async renderDetectorAnnotatedArtifacts(params: {
+    //     screenshotPath?: string;
+    //     overlays: Array<{
+    //         purpose: string;
+    //         screenshotPath?: string;
+    //         shapes: any[];
+    //         renderNote?: string;
+    //     }>;
+    //     scenarioId: string;
+    //     iteration: number;
+    //     detectorRuleId: string;
+    //     targetState: string;
+    // }): Promise<DiagnosticAttachment[]> {
+    //     const attachments: DiagnosticAttachment[] = [];
+
+    //     if (!params.screenshotPath) {
+    //         return attachments;
+    //     }
+
+    //     for (const overlay of params.overlays) {
+    //         if (!overlay.screenshotPath || overlay.shapes.length === 0) {
+    //             continue;
+    //         }
+
+    //         const ext = path.extname(overlay.screenshotPath);
+    //         const base = path.basename(overlay.screenshotPath, ext);
+    //         const dir = path.dirname(overlay.screenshotPath);
+    //         const outputPath = path.join(
+    //             dir,
+    //             `${base}_${overlay.purpose}_annotated${ext}`,
+    //         );
+
+    //         await renderOverlayImage({
+    //             screenshotPath: overlay.screenshotPath,
+    //             outputPath,
+    //             payload: {
+    //                 meta: {
+    //                     scenarioId: params.scenarioId,
+    //                     iteration: params.iteration,
+    //                     detector: params.detectorRuleId,
+    //                     state: params.targetState,
+    //                     note: overlay.renderNote ?? overlay.purpose,
+    //                 },
+    //                 shapes: overlay.shapes,
+    //             },
+    //         });
+
+    //         attachments.push({
+    //             role: "screenshot_annotated",
+    //             path: outputPath,
+    //             description: `detector annotated (${overlay.purpose}) for ${params.detectorRuleId}`,
+    //         });
+    //     }
+
+    //     return attachments;
+    // }
     private async renderDetectorAnnotatedArtifacts(params: {
         screenshotPath?: string;
         overlays: Array<{
@@ -178,7 +234,9 @@ export class RuleBasedStateDetector implements StateDetector {
             return attachments;
         }
 
-        for (const overlay of params.overlays) {
+        for (let index = 0; index < params.overlays.length; index++) {
+            const overlay = params.overlays[index];
+
             if (!overlay.screenshotPath || overlay.shapes.length === 0) {
                 continue;
             }
@@ -188,7 +246,7 @@ export class RuleBasedStateDetector implements StateDetector {
             const dir = path.dirname(overlay.screenshotPath);
             const outputPath = path.join(
                 dir,
-                `${base}_${overlay.purpose}_annotated${ext}`,
+                `${base}_${overlay.purpose}_${index}_annotated${ext}`,
             );
 
             await renderOverlayImage({
@@ -200,7 +258,8 @@ export class RuleBasedStateDetector implements StateDetector {
                         iteration: params.iteration,
                         detector: params.detectorRuleId,
                         state: params.targetState,
-                        note: overlay.renderNote ?? overlay.purpose,
+                        note:
+                            overlay.renderNote ?? `${overlay.purpose}#${index}`,
                     },
                     shapes: overlay.shapes,
                 },
@@ -209,7 +268,7 @@ export class RuleBasedStateDetector implements StateDetector {
             attachments.push({
                 role: "screenshot_annotated",
                 path: outputPath,
-                description: `detector annotated (${overlay.purpose}) for ${params.detectorRuleId}`,
+                description: `detector annotated (${overlay.purpose}#${index}) for ${params.detectorRuleId}`,
             });
         }
 

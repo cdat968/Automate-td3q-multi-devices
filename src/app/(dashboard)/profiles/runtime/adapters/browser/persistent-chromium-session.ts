@@ -73,7 +73,7 @@ export class PersistentChromiumSession implements BrowserSession {
             this.context = await chromium.launchPersistentContext(
                 this.options.userDataDir,
                 {
-                    headless: this.options.headless ?? true,
+                    headless: this.options.headless ?? false,
                     slowMo: this.options.slowMo ?? 0,
                     args: launchArgs,
                     viewport: null,
@@ -324,6 +324,26 @@ export class PersistentChromiumSession implements BrowserSession {
                 height: box.height,
             },
         };
+    }
+
+    async movePointer(
+        x: number,
+        y: number,
+        signal?: AbortSignal,
+    ): Promise<void> {
+        throwIfAborted(signal);
+
+        const page = await this.ensureContext();
+        const dpr = await this.getDevicePixelRatio();
+
+        const cssX = x / dpr;
+        const cssY = y / dpr;
+
+        console.log(
+            `[PersistentChromiumSession] Absolute move at image=(${x}, ${y}) css=(${cssX.toFixed(1)}, ${cssY.toFixed(1)}) dpr=${dpr}`,
+        );
+
+        await page.mouse.move(cssX, cssY);
     }
 
     private async getDevicePixelRatio(): Promise<number> {

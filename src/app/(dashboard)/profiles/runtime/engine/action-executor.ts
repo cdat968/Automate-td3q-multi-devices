@@ -4,6 +4,7 @@ import type {
     ActionExecutionResult,
     ClickRelativePointAction,
     ClickFromDetectionAction,
+    MoveRelativePointAction,
 } from "../actions/action-types";
 import type { ExecutionContext } from "../scenario/scenario-types";
 import { captureScreenshotArtifact } from "../../diagnostics/artifact/screenshot-helper";
@@ -55,10 +56,10 @@ function extractTargetId(action: RuntimeAction): string | undefined {
             return action.target.id;
         case "CLICK_FROM_DETECTION":
             return action.label ?? action.id;
-
         case "WAIT":
         case "PRESS_KEY":
         case "COMPOSITE":
+        case "MOVE_RELATIVE_POINT":
         case "NOOP":
             return undefined;
 
@@ -205,7 +206,9 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
                 case "CLICK_FROM_DETECTION":
                     result = await this.executeClickFromDetection(ctx, action);
                     break;
-
+                case "MOVE_RELATIVE_POINT":
+                    result = await this.executeMoveRelativePoint(ctx, action);
+                    break;
                 default: {
                     const exhaustiveCheck: never = action;
                     throw new Error(
@@ -240,6 +243,46 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
         }
 
         return result;
+    }
+
+    private async executeMoveRelativePoint(
+        ctx: ExecutionContext,
+        action: MoveRelativePointAction,
+    ): Promise<ActionExecutionResult> {
+        if (!ctx.adapter.movePointer) {
+            throw new Error("Adapter does not support movePointer");
+        }
+
+        if (!isValidRatio(action.xRatio)) {
+            throw new Error(
+                `INVALID_RELATIVE_RATIO: xRatio must be in [0..1], got ${action.xRatio}`,
+            );
+        }
+
+        if (!isValidRatio(action.yRatio)) {
+            throw new Error(
+                `INVALID_RELATIVE_RATIO: yRatio must be in [0..1], got ${action.yRatio}`,
+            );
+        }
+
+        const moveEvidence = await ctx.adapter.movePointer(
+            action.xRatio,
+            action.yRatio,
+            ctx.signal,
+        );
+
+        const evidence: Record<string, unknown> = {
+            actionKind: action.kind,
+            xRatio: action.xRatio,
+            yRatio: action.yRatio,
+            move: moveEvidence,
+        };
+
+        return {
+            ok: true,
+            message: `Moved pointer to relative point (${action.xRatio}, ${action.yRatio})`,
+            evidence,
+        };
     }
 
     private async executeClickRelativePoint(
@@ -517,6 +560,35 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
         const detection = await action.detectTarget(ctx);
 
         if (!detection.matched || !detection.matchBox) {
+            if (action.id === "click-attendance-hotspot" && ctx.setVariable) {
+                const currentRetry = Number.parseInt(
+                    ctx.variables.ATTENDANCE_RETRY_COUNT ?? "0",
+                    10,
+                );
+                const nextRetry = Number.isFinite(currentRetry)
+                    ? currentRetry + 1
+                    : 1;
+
+                ctx.setVariable("ATTENDANCE_RETRY_COUNT", String(nextRetry));
+                ctx.setVariable(
+                    "ATTENDANCE_LAST_FAILURE_KIND",
+                    "attendance_icon_not_found",
+                );
+                ctx.setVariable(
+                    "ATTENDANCE_LAST_FAILURE_MESSAGE",
+                    detection.message ?? "attendance_icon_not_found",
+                );
+                ctx.setVariable(
+                    "ATTENDANCE_LAST_FAILURE_AT_ITERATION",
+                    String(ctx.iteration),
+                );
+
+                // prevent stale verify state from previous attempts
+                ctx.setVariable("ATTENDANCE_VERIFY_ARMED", "false");
+                ctx.setVariable("ATTENDANCE_VERIFY_ARMED_AT_ITERATION", "");
+                ctx.setVariable("ATTENDANCE_VERIFY_DEADLINE_ITERATION", "");
+            }
+
             return {
                 ok: false,
                 message:
@@ -526,6 +598,12 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
                     actionKind: action.kind,
                     detectionMatched: detection.matched,
                     detectionMeta: detection.meta,
+                    correlation: {
+                        sourceDetectorId: detection.meta?.detectorId,
+                        sourceDetectorRunId: detection.meta?.detectorRunId,
+                        retryAttempt: detection.meta?.retryAttempt,
+                        clickIteration: ctx.iteration,
+                    },
                 },
                 attachments: detection.attachments,
                 overlays: detection.overlays,
@@ -544,10 +622,22 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
 
         // Arm attendance verification only after the attendance hotspot click succeeds.
         if (action.id === "click-attendance-hotspot" && ctx.setVariable) {
+            const verifyWindowIterations = Number.parseInt(
+                ctx.variables.ATTENDANCE_VERIFY_WINDOW_ITERATIONS ?? "2",
+                10,
+            );
+            const safeVerifyWindow = Number.isFinite(verifyWindowIterations)
+                ? verifyWindowIterations
+                : 2;
+
             ctx.setVariable("ATTENDANCE_VERIFY_ARMED", "true");
             ctx.setVariable(
                 "ATTENDANCE_VERIFY_ARMED_AT_ITERATION",
                 String(ctx.iteration),
+            );
+            ctx.setVariable(
+                "ATTENDANCE_VERIFY_DEADLINE_ITERATION",
+                String(ctx.iteration + safeVerifyWindow),
             );
 
             ctx.setVariable(
@@ -571,6 +661,11 @@ export class AdapterBackedActionExecutor implements ActionExecutor {
                     String(detection.meta.retryAttempt),
                 );
             }
+
+            // clear stale failure after a successful click
+            ctx.setVariable("ATTENDANCE_LAST_FAILURE_KIND", "");
+            ctx.setVariable("ATTENDANCE_LAST_FAILURE_MESSAGE", "");
+            ctx.setVariable("ATTENDANCE_LAST_FAILURE_AT_ITERATION", "");
         }
 
         const screenshotAfter = action.screenshotAfter

@@ -25,6 +25,7 @@ export interface RelativeClickEvidence {
 
 export interface DeviceAdapter {
     navigate?(url: string, signal?: AbortSignal): Promise<void>;
+    movePointer(x: number, y: number, signal?: AbortSignal): Promise<void>;
     clickAndAdoptNewPage?(
         target: RuntimeTargetRef,
         signal?: AbortSignal,
