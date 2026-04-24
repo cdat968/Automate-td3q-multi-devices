@@ -763,7 +763,7 @@ type AttendanceTodayCellScanResult = {
 
 const ATTENDANCE_GRID_COLS = 6;
 const ATTENDANCE_GRID_ROWS = 5;
-const ATTENDANCE_CELL_MATCH_THRESHOLD = 0.12;
+const ATTENDANCE_CELL_MATCH_THRESHOLD = 0.72;
 const ATTENDANCE_CELL_WINNER_MARGIN = 0.05;
 
 type PixelBox = {
@@ -1214,24 +1214,6 @@ async function classifyAttendanceTodayCell(
         todayCell = scan.cells[tomorrowCell.index - 1];
     }
 
-    // let todayCellSource:
-    //     | "tomorrow_previous_cell"
-    //     | "best_cell_fallback"
-    //     | undefined;
-
-    // if (tomorrowCell && tomorrowCell.index > 0) {
-    //     todayCell = scan.cells[tomorrowCell.index - 1];
-    //     todayCellSource = "tomorrow_previous_cell";
-    // } else if (
-    //     !tomorrowCell &&
-    //     templateResult.matched &&
-    //     scan.bestCell &&
-    //     scan.bestRatio >= ATTENDANCE_TODAY_BEST_CELL_FALLBACK_THRESHOLD
-    // ) {
-    //     todayCell = scan.bestCell;
-    //     todayCellSource = "best_cell_fallback";
-    // }
-
     console.log(
         "[ATTENDANCE][CELL_RESOLUTION]",
         JSON.stringify({
@@ -1313,7 +1295,7 @@ async function classifyAttendanceTodayCell(
                 todayCellIndex: todayCell.index,
                 tickMatched,
                 tickScore: Number(tickScore.toFixed(4)),
-                threshold: 0.35,
+                threshold: 0.7,
                 tickBox,
                 cyanRatio: Number(cyanRatio.toFixed(4)),
                 todayCellBox: {
@@ -1630,6 +1612,56 @@ async function classifyAttendanceTodayCell(
                 width: scan.bestCell.width,
                 height: scan.bestCell.height,
             },
+        };
+    }
+
+    if (!tomorrowCell && !scan.found) {
+        console.log(
+            "[ATTENDANCE][CLASSIFY_DECISION]",
+            JSON.stringify({
+                state: "DONE",
+                reason: "fallback_no_tomorrow_no_cyan",
+                bestCellIndex: scan.bestCell?.index,
+                bestRatio: Number(scan.bestRatio.toFixed(4)),
+                secondBestRatio: Number(scan.secondBestRatio.toFixed(4)),
+                winnerMargin: Number(scan.winnerMargin.toFixed(4)),
+                tomorrowCellIndex: null,
+                tomorrowScore: Number(tomorrowScore.toFixed(4)),
+                cyanThreshold: ATTENDANCE_CELL_MATCH_THRESHOLD,
+            }),
+        );
+
+        return {
+            state: "DONE",
+            reason: "fallback_no_tomorrow_no_cyan",
+            screenshotPath,
+            attachments: templateResult.attachments,
+            overlays: [...(templateResult.overlays ?? []), ...gridOverlay],
+            meta: {
+                todayCellIndex: undefined,
+                // todayCellSource,
+                tomorrowCellIndex: undefined,
+                cyanRatio: Number(scan.bestRatio.toFixed(4)),
+                tickMatched: false,
+                tickScore: 0,
+                tomorrowMatched: false,
+                tomorrowScore: Number(tomorrowScore.toFixed(4)),
+                gridBestRatio: Number(scan.bestRatio.toFixed(4)),
+                bestCellIndex: scan.bestCell?.index,
+                templateMatched: templateResult.matched,
+                todayCellBox: undefined,
+                tomorrowCellBox: undefined,
+                tickBox: undefined,
+                tomorrowMarkerBox: undefined,
+            },
+            matchBox: scan.bestCell
+                ? {
+                      x: scan.bestCell.x,
+                      y: scan.bestCell.y,
+                      width: scan.bestCell.width,
+                      height: scan.bestCell.height,
+                  }
+                : templateResult.matchBox,
         };
     }
 

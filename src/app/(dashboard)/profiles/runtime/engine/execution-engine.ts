@@ -52,6 +52,15 @@ export class ExecutionEngine {
         private readonly config: ExecutionEngineConfig,
     ) {}
 
+    private isSuccessfulTerminalState(
+        state: RuntimeStateSnapshot | undefined,
+    ): boolean {
+        return (
+            state?.id === "ATTENDANCE_FLOW_DONE" &&
+            state.meta?.flowResult === "success"
+        );
+    }
+
     async run(
         input: ExecutionEngineRunInput,
     ): Promise<ExecutionEngineRunResult> {
@@ -114,6 +123,16 @@ export class ExecutionEngine {
                     state,
                     message: `Detected state ${state.id}`,
                 });
+
+                if (this.isSuccessfulTerminalState(state)) {
+                    return {
+                        ok: true,
+                        finalState,
+                        iterations: ctx.iteration,
+                        timelineEvents: ctx.timeline.getEvents().length,
+                        reason: "Reached successful terminal state",
+                    };
+                }
 
                 const transition = await transitionResolver.resolve(ctx, state);
 

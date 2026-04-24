@@ -37,7 +37,7 @@ class StepCancelError extends Error {
  */
 export async function runProfile(
     profile: PersistedGameProfile,
-    context: RuntimeContext
+    context: RuntimeContext,
 ): Promise<ProfileRunResult> {
     const startedAt = Date.now();
 
@@ -109,7 +109,7 @@ export async function runProfile(
  */
 export async function runStep(
     step: PersistedAutomationStep,
-    context: RuntimeContext
+    context: RuntimeContext,
 ): Promise<StepRunResult> {
     const startedAt = Date.now();
 
@@ -166,18 +166,17 @@ export async function runStep(
         step.runtime,
         (signal) => dispatchStepByKind(step.id, step.config, context, signal),
         context,
-        step.id
+        step.id,
     );
 
     const durationMs = Date.now() - startedAt;
 
     // 5. Finalize Action State (Failure / Cancellation)
     if (!actionResult.ok) {
-        const error =
-            actionResult.error ?? {
-                code: "STEP_FAILED",
-                message: "Step execution failed.",
-            };
+        const error = actionResult.error ?? {
+            code: "STEP_FAILED",
+            message: "Step execution failed.",
+        };
 
         const isCancelled = error.code === "RUN_CANCELLED";
 
@@ -216,7 +215,7 @@ export async function runStep(
         step.assertions,
         actionResult,
         context,
-        step.id
+        step.id,
     );
 
     if (!assertionOk) {
@@ -246,7 +245,11 @@ export async function runStep(
     }
 
     // 7. Output Mapping
-    const stepOutputs = resolveOutputs(step.outputMappings, actionResult, context);
+    const stepOutputs = resolveOutputs(
+        step.outputMappings,
+        actionResult,
+        context,
+    );
 
     // 8. Success
     context.emit({
@@ -279,7 +282,7 @@ async function executeWithPolicy(
     policy: PersistedStepRuntimePolicy,
     handler: (signal: AbortSignal) => Promise<StepActionResult>,
     context: RuntimeContext,
-    stepId: string
+    stepId: string,
 ): Promise<{ actionResult: StepActionResult; attempts: number }> {
     let lastResult: StepActionResult = {
         ok: false,
@@ -311,7 +314,7 @@ async function executeWithPolicy(
             lastResult = await runAttemptWithTimeout(
                 timeoutMs,
                 context,
-                (signal) => handler(signal)
+                (signal) => handler(signal),
             );
 
             if (lastResult.ok) {
@@ -320,7 +323,7 @@ async function executeWithPolicy(
 
             context.logger.log(
                 `Step ${stepId} attempt ${attempts} failed: ${lastResult.error?.message ?? "Unknown error"}`,
-                "warn"
+                "warn",
             );
         } catch (error: unknown) {
             if (error instanceof StepTimeoutError) {
@@ -341,7 +344,9 @@ async function executeWithPolicy(
             }
 
             const message =
-                error instanceof Error ? error.message : "Inner policy execution error";
+                error instanceof Error
+                    ? error.message
+                    : "Inner policy execution error";
 
             lastResult = {
                 ok: false,
@@ -398,7 +403,7 @@ async function executeWithPolicy(
 async function runAttemptWithTimeout(
     timeoutMs: number,
     context: RuntimeContext,
-    handler: (signal: AbortSignal) => Promise<StepActionResult>
+    handler: (signal: AbortSignal) => Promise<StepActionResult>,
 ): Promise<StepActionResult> {
     const attemptController = new AbortController();
 
@@ -420,7 +425,7 @@ async function runAttemptWithTimeout(
 
     context.signal.addEventListener("abort", onGlobalAbort, { once: true });
     cleanupFns.push(() =>
-        context.signal.removeEventListener("abort", onGlobalAbort)
+        context.signal.removeEventListener("abort", onGlobalAbort),
     );
 
     const timer = setTimeout(() => {
@@ -437,7 +442,11 @@ async function runAttemptWithTimeout(
             if (context.signal.aborted) {
                 reject(new StepCancelError("Run cancelled during attempt."));
             } else {
-                reject(new StepTimeoutError(`Step timed out after ${timeoutMs}ms.`));
+                reject(
+                    new StepTimeoutError(
+                        `Step timed out after ${timeoutMs}ms.`,
+                    ),
+                );
             }
         };
 
@@ -445,7 +454,10 @@ async function runAttemptWithTimeout(
             once: true,
         });
         cleanupFns.push(() =>
-            attemptController.signal.removeEventListener("abort", onAttemptAbort)
+            attemptController.signal.removeEventListener(
+                "abort",
+                onAttemptAbort,
+            ),
         );
     });
 
@@ -467,7 +479,7 @@ async function runAttemptWithTimeout(
  */
 async function waitWithAbort(
     delayMs: number,
-    signal: AbortSignal
+    signal: AbortSignal,
 ): Promise<void> {
     if (delayMs <= 0) {
         if (signal.aborted) {
@@ -501,7 +513,7 @@ async function waitWithAbort(
  */
 function evaluateCondition(
     condition: PersistedStepCondition | null | undefined,
-    context: RuntimeContext
+    context: RuntimeContext,
 ): boolean {
     if (!condition) return true;
 
@@ -545,7 +557,7 @@ function evaluateCondition(
 function resolveOutputs(
     mappings: PersistedOutputMapping[] | undefined,
     result: StepActionResult,
-    context: RuntimeContext
+    context: RuntimeContext,
 ): Record<string, unknown> {
     const stepOutputs: Record<string, unknown> = {};
 
@@ -572,11 +584,29 @@ async function verifyAssertions(
     assertions: PersistedAssertionConfig[] | undefined,
     _result: StepActionResult,
     _context: RuntimeContext,
-    _stepId: string
+    _stepId: string,
 ): Promise<boolean> {
     if (!assertions || assertions.length === 0) {
         return true;
     }
 
     return true;
+}
+
+//helper
+function isSuccessfulTerminalState(
+    state:
+        | {
+              id: string;
+              meta?: Record<string, unknown>;
+          }
+        | null
+        | undefined,
+): boolean {
+    if (!state) return false;
+
+    return (
+        state.id === "ATTENDANCE_FLOW_DONE" &&
+        state.meta?.flowResult === "success"
+    );
 }
