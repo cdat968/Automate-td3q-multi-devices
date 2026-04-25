@@ -47,7 +47,7 @@ export const templates = {
     attendanceMilestone10: fs.readFileSync(
         path.join(
             process.cwd(),
-            "templates/attendance-milestone-10-claimable.png",
+            "templates/attendance-milestone-10-claimable_3.png",
         ),
     ),
     attendanceMilestone20: fs.readFileSync(

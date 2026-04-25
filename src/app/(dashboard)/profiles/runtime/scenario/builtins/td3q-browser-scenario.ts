@@ -2,13 +2,65 @@ import type { ExecutionContext, ScenarioDefinition } from "../scenario-types";
 import type { RuntimeTargetRef } from "../../actions/action-types";
 import { templates } from "../../vision/templates";
 import { createTemplateMatchDetector } from "../../vision/create-template-match-detector";
-import { cropRoiFromScreenshot } from "../../vision/template-matcher";
 import { matchTemplateMultiScale } from "../../vision/template-matcher";
 import { PNG } from "pngjs";
 import {
     DiagnosticAttachment,
     DiagnosticOverlayMeta,
 } from "../../../diagnostics/diagnostic-types";
+
+function clearAttendancePhases(ctx: {
+    setVariable?: (key: string, value: string) => void;
+}): void {
+    setVar(ctx, AttendanceVars.milestonePhase, "false");
+    setVar(ctx, AttendanceVars.closePhase, "false");
+    setVar(ctx, AttendanceVars.popupConfirmed, "false");
+}
+
+function enterAttendanceMilestonePhase(ctx: {
+    setVariable?: (key: string, value: string) => void;
+}): void {
+    setVar(ctx, AttendanceVars.milestonePhase, "true");
+    setVar(ctx, AttendanceVars.closePhase, "false");
+}
+
+function enterAttendanceClosePhase(ctx: {
+    setVariable?: (key: string, value: string) => void;
+}): void {
+    setVar(ctx, AttendanceVars.closePhase, "true");
+}
+
+function readBoolVar(
+    ctx: { variables: Record<string, string> },
+    key: string,
+): boolean {
+    return ctx.variables[key] === "true";
+}
+
+const AttendanceVars = {
+    verifyArmed: "ATTENDANCE_VERIFY_ARMED",
+    verifyArmedAtIteration: "ATTENDANCE_VERIFY_ARMED_AT_ITERATION",
+    verifyDeadlineIteration: "ATTENDANCE_VERIFY_DEADLINE_ITERATION",
+    verifyWindowIterations: "ATTENDANCE_VERIFY_WINDOW_ITERATIONS",
+
+    retryCount: "ATTENDANCE_RETRY_COUNT",
+
+    lastClickAtIteration: "ATTENDANCE_LAST_CLICK_AT_ITERATION",
+    lastClickSourceDetectorRunId:
+        "ATTENDANCE_LAST_CLICK_SOURCE_DETECTOR_RUN_ID",
+    lastClickRetryAttempt: "ATTENDANCE_LAST_CLICK_RETRY_ATTEMPT",
+
+    lastFailureKind: "ATTENDANCE_LAST_FAILURE_KIND",
+    lastFailureMessage: "ATTENDANCE_LAST_FAILURE_MESSAGE",
+    lastFailureAtIteration: "ATTENDANCE_LAST_FAILURE_AT_ITERATION",
+
+    abortReason: "ATTENDANCE_ABORT_REASON",
+    popupConfirmed: "ATTENDANCE_POPUP_CONFIRMED",
+    milestonePhase: "ATTENDANCE_MILESTONE_PHASE",
+    closePhase: "ATTENDANCE_CLOSE_PHASE",
+    closeAttempt: "ATTENDANCE_CLOSE_ATTEMPT",
+    flowResult: "ATTENDANCE_FLOW_RESULT",
+} as const;
 
 const attendanceTomorrowReceiveTemplate = (
     templates as typeof templates & {
@@ -100,7 +152,7 @@ const attendancePopupVerifyDetector = createTemplateMatchDetector({
     template: templates.attendanceHeader,
     screenshotLabel: "detect_attendance_popup_open",
     overlayLabel: "attendance-popup-verify",
-    shouldRun: (ctx) => ctx.variables.ATTENDANCE_VERIFY_ARMED === "true",
+    shouldRun: (ctx) => readBoolVar(ctx, AttendanceVars.verifyArmed),
     skipReason: "attendance_verify_not_armed",
     roi: {
         xRatio: 0.44,
@@ -112,18 +164,18 @@ const attendancePopupVerifyDetector = createTemplateMatchDetector({
         `ATTENDANCE POPUP VERIFY => ${matched ? "MATCH" : "MISS"} (${score.toFixed(3)})`,
     buildMeta: ({ ctx, matched }) => ({
         armed: true,
-        armedAtIteration: ctx.variables.ATTENDANCE_VERIFY_ARMED_AT_ITERATION,
-        retryAttempt: Number(ctx.variables.ATTENDANCE_RETRY_COUNT ?? "0"),
+        armedAtIteration: ctx.variables[AttendanceVars.verifyArmedAtIteration],
+        retryAttempt: Number(ctx.variables[AttendanceVars.retryCount] ?? "0"),
         sourceClickIteration: Number(
-            ctx.variables.ATTENDANCE_LAST_CLICK_AT_ITERATION ?? "0",
+            ctx.variables[AttendanceVars.lastClickAtIteration] ?? "0",
         ),
         sourceDetectorRunId:
-            ctx.variables.ATTENDANCE_LAST_CLICK_SOURCE_DETECTOR_RUN_ID,
+            ctx.variables[AttendanceVars.lastClickSourceDetectorRunId],
         sourceRetryAttempt: Number(
-            ctx.variables.ATTENDANCE_LAST_CLICK_RETRY_ATTEMPT ?? "0",
+            ctx.variables[AttendanceVars.lastClickRetryAttempt] ?? "0",
         ),
         verifyDeadlineIteration: Number(
-            ctx.variables.ATTENDANCE_VERIFY_DEADLINE_ITERATION ?? "0",
+            ctx.variables[AttendanceVars.verifyDeadlineIteration] ?? "0",
         ),
         verifyMatched: matched,
     }),
@@ -222,9 +274,8 @@ const attendanceTodayDoneDetector = {
 
 const MILESTONE_SLOT_ROIS = [
     { xRatio: 0.36, yRatio: 0.866, widthRatio: 0.048, heightRatio: 0.0946 }, // 2-day
-    // { xRatio: 0.45, yRatio: 0.862, widthRatio: 0.049, heightRatio: 0.096 }, // 5-day v-1
     { xRatio: 0.45, yRatio: 0.862, widthRatio: 0.049, heightRatio: 0.0965 }, // 5-day
-    { xRatio: 0.555, yRatio: 0.866, widthRatio: 0.048, heightRatio: 0.095 }, // 10-day
+    { xRatio: 0.548, yRatio: 0.862, widthRatio: 0.052, heightRatio: 0.098 }, // 10-day
     { xRatio: 0.66, yRatio: 0.866, widthRatio: 0.048, heightRatio: 0.095 }, // 20-day
     { xRatio: 0.76, yRatio: 0.866, widthRatio: 0.048, heightRatio: 0.095 }, // 30-day
 ];
@@ -257,19 +308,15 @@ const milestoneDetectors = [
     }),
 ];
 
-const MILESTONE_TEMPLATES = [
-    templates.attendanceMilestone2,
-    templates.attendanceMilestone5,
-    templates.attendanceMilestone10,
-    templates.attendanceMilestone20,
-    templates.attendanceMilestone30,
-] as const;
+type MilestoneDetectorResult = Awaited<
+    ReturnType<(typeof milestoneDetectors)[number]["detect"]>
+>;
 
 const attendanceMilestoneClaimableDetector = {
     async detect(ctx: ExecutionContext) {
         const results: Array<{
             index: number;
-            result: any;
+            result: MilestoneDetectorResult;
         }> = [];
 
         const DAYS = [2, 5, 10, 20, 30] as const;
@@ -328,7 +375,6 @@ const attendanceMilestoneClaimableDetector = {
         );
 
         if (ctx.adapter.screenshot && overlayScreenshotPath) {
-            console.log(11111111);
             try {
                 const raw = await ctx.adapter.screenshot(ctx.signal);
                 const buffer = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
@@ -469,196 +515,6 @@ const attendanceMilestoneClaimableDetector = {
         };
     },
 };
-
-// const attendanceMilestoneClaimableDetector = {
-//     async detect(ctx: ExecutionContext) {
-//         if (!ctx.adapter.screenshot) {
-//             return {
-//                 matched: false,
-//                 message: "screenshot_not_supported",
-//                 meta: {
-//                     detectorId: "attendance-milestone-claimable",
-//                 },
-//             };
-//         }
-
-//         const raw = await ctx.adapter.screenshot(ctx.signal);
-//         const buffer = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-//         const { width, height } = decodePng(buffer);
-
-//         const results: Array<{
-//             index: number;
-//             roi: {
-//                 xRatio: number;
-//                 yRatio: number;
-//                 widthRatio: number;
-//                 heightRatio: number;
-//             };
-//             matched: boolean;
-//             score: number;
-//             location?: {
-//                 x: number;
-//                 y: number;
-//                 width: number;
-//                 height: number;
-//             };
-//             roiRect?: {
-//                 x: number;
-//                 y: number;
-//                 width: number;
-//                 height: number;
-//             };
-//         }> = [];
-
-//         for (let i = 0; i < MILESTONE_SLOT_ROIS.length; i++) {
-//             const roi = MILESTONE_SLOT_ROIS[i];
-//             const template = MILESTONE_TEMPLATES[i];
-
-//             const result = matchTemplateMultiScale(buffer, template, {
-//                 roi,
-//                 threshold: 0.7,
-//                 scales: [0.9, 1.0, 1.1],
-//             });
-
-//             results.push({
-//                 index: i,
-//                 roi,
-//                 matched: result.matched,
-//                 score: result.score,
-//                 location: result.location,
-//                 roiRect: result.roiRect,
-//             });
-//         }
-
-//         const leftmost = results.find((r) => r.matched);
-
-//         const shapes: DiagnosticOverlayMeta["shapes"] = [];
-
-//         const barX = Math.round(0.33 * width);
-//         const barY = Math.round(0.8 * height);
-//         const barW = Math.round(0.44 * width);
-//         const barH = Math.round(0.14 * height);
-
-//         shapes.push({
-//             type: "box",
-//             x: barX,
-//             y: barY,
-//             width: barW,
-//             height: barH,
-//             color: "blue",
-//             label: "milestone-bar",
-//             lineWidth: 2,
-//         });
-
-//         for (const r of results) {
-//             const slotX = Math.round(r.roi.xRatio * width);
-//             const slotY = Math.round(r.roi.yRatio * height);
-//             const slotW = Math.round(r.roi.widthRatio * width);
-//             const slotH = Math.round(r.roi.heightRatio * height);
-
-//             shapes.push({
-//                 type: "box",
-//                 x: slotX,
-//                 y: slotY,
-//                 width: slotW,
-//                 height: slotH,
-//                 color: r.matched ? "green" : "red",
-//                 label: `slot-${r.index} (${r.score.toFixed(2)})`,
-//                 lineWidth: r.matched ? 3 : 1,
-//             });
-
-//             if (r.location) {
-//                 shapes.push({
-//                     type: "box",
-//                     x: r.location.x,
-//                     y: r.location.y,
-//                     width: r.location.width,
-//                     height: r.location.height,
-//                     color: "yellow",
-//                     label: `match-${r.index}`,
-//                     lineWidth: 2,
-//                 });
-//             }
-//         }
-
-//         if (!leftmost) {
-//             return {
-//                 matched: false,
-//                 message: "NO MILESTONE READY",
-//                 overlays: [
-//                     {
-//                         purpose: "debug_view" as const,
-//                         shapes,
-//                         renderNote: "milestone scanner: none ready",
-//                     },
-//                 ],
-//                 meta: {
-//                     detectorId: "attendance-milestone-claimable",
-//                     allSlots: results,
-//                 },
-//             };
-//         }
-
-//         const slotIndex = leftmost.index;
-//         const slotBox = {
-//             x: Math.round(leftmost.roi.xRatio * width),
-//             y: Math.round(leftmost.roi.yRatio * height),
-//             width: Math.round(leftmost.roi.widthRatio * width),
-//             height: Math.round(leftmost.roi.heightRatio * height),
-//         };
-
-//         const clickPoint = leftmost.location
-//             ? {
-//                   x: Math.round(
-//                       leftmost.location.x + leftmost.location.width / 2,
-//                   ),
-//                   y: Math.round(
-//                       leftmost.location.y + leftmost.location.height / 2,
-//                   ),
-//               }
-//             : {
-//                   x: Math.round(slotBox.x + slotBox.width / 2),
-//                   y: Math.round(slotBox.y + slotBox.height / 2),
-//               };
-
-//         const matchBox = leftmost.location
-//             ? {
-//                   x: leftmost.location.x,
-//                   y: leftmost.location.y,
-//                   width: leftmost.location.width,
-//                   height: leftmost.location.height,
-//               }
-//             : {
-//                   x: slotBox.x,
-//                   y: slotBox.y,
-//                   width: slotBox.width,
-//                   height: slotBox.height,
-//               };
-
-//         return {
-//             matched: true,
-//             confidence: leftmost.score,
-//             matchBox,
-//             message: `MILESTONE SLOT ${slotIndex} READY`,
-//             overlays: [
-//                 {
-//                     purpose: "debug_view" as const,
-//                     shapes,
-//                     renderNote: `milestone scanner: slot ${slotIndex} prioritized`,
-//                 },
-//             ],
-//             meta: {
-//                 detectorId: "attendance-milestone-claimable",
-//                 slotIndex,
-//                 slotBox,
-//                 matchBox,
-//                 clickPoint,
-//                 score: leftmost.score,
-//                 allSlots: results,
-//             },
-//         };
-//     },
-// };
 
 const attendancePopupCloseButtonDetector = createTemplateMatchDetector({
     detectorId: "attendance-popup-close-button",
@@ -1722,8 +1578,7 @@ async function classifyAttendanceTodayCell(
         console.log(
             "[ATTENDANCE][TODAY_CELL_MISSING]",
             JSON.stringify({
-                todayCellIndex: (todayCell as any)?.index ?? null,
-                // todayCellSource: todayCellSource ?? null,
+                todayCellIndex: null,
                 tomorrowCellIndex: tomorrowCell?.index ?? null,
                 bestCellIndex: scan.bestCell?.index ?? null,
                 bestRatio: Number(scan.bestRatio.toFixed(4)),
@@ -1933,17 +1788,17 @@ function setVar(
 function clearAttendanceRuntime(ctx: {
     setVariable?: (key: string, value: string) => void;
 }): void {
-    setVar(ctx, "ATTENDANCE_VERIFY_ARMED", "false");
-    setVar(ctx, "ATTENDANCE_VERIFY_ARMED_AT_ITERATION", "");
-    setVar(ctx, "ATTENDANCE_VERIFY_DEADLINE_ITERATION", "");
-    setVar(ctx, "ATTENDANCE_LAST_CLICK_AT_ITERATION", "");
-    setVar(ctx, "ATTENDANCE_LAST_CLICK_SOURCE_DETECTOR_RUN_ID", "");
-    setVar(ctx, "ATTENDANCE_LAST_CLICK_RETRY_ATTEMPT", "");
-    setVar(ctx, "ATTENDANCE_LAST_FAILURE_KIND", "");
-    setVar(ctx, "ATTENDANCE_LAST_FAILURE_MESSAGE", "");
-    setVar(ctx, "ATTENDANCE_LAST_FAILURE_AT_ITERATION", "");
-    setVar(ctx, "ATTENDANCE_ABORT_REASON", "");
-    setVar(ctx, "ATTENDANCE_POPUP_CONFIRMED", "false");
+    setVar(ctx, AttendanceVars.verifyArmed, "false");
+    setVar(ctx, AttendanceVars.verifyArmedAtIteration, "");
+    setVar(ctx, AttendanceVars.verifyDeadlineIteration, "");
+    setVar(ctx, AttendanceVars.lastClickAtIteration, "");
+    setVar(ctx, AttendanceVars.lastClickSourceDetectorRunId, "");
+    setVar(ctx, AttendanceVars.lastClickRetryAttempt, "");
+    setVar(ctx, AttendanceVars.lastFailureKind, "");
+    setVar(ctx, AttendanceVars.lastFailureMessage, "");
+    setVar(ctx, AttendanceVars.lastFailureAtIteration, "");
+    setVar(ctx, AttendanceVars.abortReason, "");
+    setVar(ctx, AttendanceVars.popupConfirmed, "false");
 }
 
 function markAttendanceAborted(
@@ -1952,11 +1807,10 @@ function markAttendanceAborted(
     },
     reason: string,
 ): void {
-    setVar(ctx, "ATTENDANCE_POPUP_CONFIRMED", "false");
-    setVar(ctx, "ATTENDANCE_MILESTONE_PHASE", "false");
-    setVar(ctx, "ATTENDANCE_ABORT_REASON", reason);
-    setVar(ctx, "ATTENDANCE_VERIFY_ARMED", "false");
-    setVar(ctx, "ATTENDANCE_VERIFY_DEADLINE_ITERATION", "");
+    clearAttendancePhases(ctx);
+    setVar(ctx, AttendanceVars.abortReason, reason);
+    setVar(ctx, AttendanceVars.verifyArmed, "false");
+    setVar(ctx, AttendanceVars.verifyDeadlineIteration, "");
 }
 
 function registerAttendanceRetry(
@@ -1967,12 +1821,12 @@ function registerAttendanceRetry(
     },
     reason: string,
 ): number {
-    const nextRetry = readIntVar(ctx, "ATTENDANCE_RETRY_COUNT", 0) + 1;
+    const nextRetry = readIntVar(ctx, AttendanceVars.retryCount, 0) + 1;
 
-    setVar(ctx, "ATTENDANCE_RETRY_COUNT", String(nextRetry));
-    setVar(ctx, "ATTENDANCE_LAST_FAILURE_KIND", reason);
-    setVar(ctx, "ATTENDANCE_LAST_FAILURE_MESSAGE", reason);
-    setVar(ctx, "ATTENDANCE_LAST_FAILURE_AT_ITERATION", String(ctx.iteration));
+    setVar(ctx, AttendanceVars.retryCount, String(nextRetry));
+    setVar(ctx, AttendanceVars.lastFailureKind, reason);
+    setVar(ctx, AttendanceVars.lastFailureMessage, reason);
+    setVar(ctx, AttendanceVars.lastFailureAtIteration, String(ctx.iteration));
 
     return nextRetry;
 }
@@ -1980,9 +1834,9 @@ function registerAttendanceRetry(
 function markAttendanceFlowSuccess(ctx: {
     setVariable?: (key: string, value: string) => void;
 }): void {
-    setVar(ctx, "ATTENDANCE_FLOW_RESULT", "success");
-    setVar(ctx, "ATTENDANCE_MILESTONE_PHASE", "false");
-    setVar(ctx, "ATTENDANCE_ABORT_REASON", "");
+    setVar(ctx, AttendanceVars.flowResult, "success");
+    setVar(ctx, AttendanceVars.milestonePhase, "false");
+    setVar(ctx, AttendanceVars.abortReason, "");
 }
 
 export const td3qBrowserScenario: ScenarioDefinition = {
@@ -2015,7 +1869,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             id: "detect-attendance-daily-ready",
             state: "ATTENDANCE_DAILY_READY",
             async detect(ctx) {
-                if (ctx.variables.ATTENDANCE_POPUP_CONFIRMED !== "true")
+                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed))
                     return false;
 
                 const popup = await attendancePopupAnchorDetector.detect(ctx);
@@ -2029,7 +1883,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             id: "detect-attendance-daily-reward-popup-open",
             state: "ATTENDANCE_DAILY_REWARD_POPUP_OPEN",
             async detect(ctx) {
-                if (ctx.variables.ATTENDANCE_POPUP_CONFIRMED !== "true")
+                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed))
                     return false;
 
                 // 1. Try close button first (preferred because it is actionable)
@@ -2047,9 +1901,9 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             id: "detect-attendance-milestone-ready",
             state: "ATTENDANCE_MILESTONE_READY",
             async detect(ctx) {
-                if (ctx.variables.ATTENDANCE_MILESTONE_PHASE !== "true")
+                if (!readBoolVar(ctx, AttendanceVars.milestonePhase))
                     return false;
-                if (ctx.variables.ATTENDANCE_POPUP_CONFIRMED !== "true")
+                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed))
                     return false;
                 const popup = await attendancePopupAnchorDetector.detect(ctx);
                 if (!popup.matched) return false;
@@ -2063,10 +1917,10 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             id: "detect-attendance-daily-done",
             state: "ATTENDANCE_DAILY_DONE",
             async detect(ctx) {
-                if (ctx.variables.ATTENDANCE_MILESTONE_PHASE === "true")
+                if (readBoolVar(ctx, AttendanceVars.milestonePhase))
                     return false;
 
-                if (ctx.variables.ATTENDANCE_POPUP_CONFIRMED !== "true")
+                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed))
                     return false;
 
                 const popup = await attendancePopupAnchorDetector.detect(ctx);
@@ -2076,47 +1930,20 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             },
         },
 
-        //ATTENDANCE_MILESTONE_DONE
-        // {
-        //     id: "detect-attendance-milestone-done",
-        //     state: "ATTENDANCE_MILESTONE_DONE",
-        //     async detect(ctx) {
-        //         if (ctx.variables.ATTENDANCE_MILESTONE_PHASE !== "true")
-        //             return false;
-        //         if (ctx.variables.ATTENDANCE_POPUP_CONFIRMED !== "true")
-        //             return false;
-
-        //         const popup = await attendancePopupAnchorDetector.detect(ctx);
-        //         if (!popup.matched) return false;
-
-        //         const milestone =
-        //             await attendanceMilestoneClaimableDetector.detect(ctx);
-
-        //         return {
-        //             matched: !milestone.matched,
-        //             message: milestone.matched
-        //                 ? "milestone_still_available"
-        //                 : "all_milestones_claimed",
-        //             meta: {
-        //                 scannerMatched: milestone.matched,
-        //             },
-        //         };
-        //     },
-        // },
         {
             id: "detect-attendance-milestone-done",
             state: "ATTENDANCE_MILESTONE_DONE",
             async detect(ctx) {
-                if (ctx.variables.ATTENDANCE_CLOSE_PHASE === "true") {
+                if (readBoolVar(ctx, AttendanceVars.closePhase)) {
                     return false;
                 }
                 // --- chỉ chạy khi milestone phase đang active
-                if (ctx.variables.ATTENDANCE_MILESTONE_PHASE !== "true") {
+                if (!readBoolVar(ctx, AttendanceVars.milestonePhase)) {
                     return false;
                 }
 
                 // --- popup phải còn mở
-                if (ctx.variables.ATTENDANCE_POPUP_CONFIRMED !== "true") {
+                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
                     return false;
                 }
 
@@ -2141,47 +1968,20 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             },
         },
 
-        //ATTENDANCE_CLOSE_READY
-        // {
-        //     id: "detect-attendance-close-ready",
-        //     state: "ATTENDANCE_CLOSE_READY",
-        //     async detect(ctx) {
-        //         if (ctx.variables.ATTENDANCE_MILESTONE_PHASE !== "true")
-        //             return false;
-        //         if (ctx.variables.ATTENDANCE_POPUP_CONFIRMED !== "true")
-        //             return false;
-
-        //         const popup = await attendancePopupAnchorDetector.detect(ctx);
-        //         if (!popup.matched) return false;
-
-        //         const milestone =
-        //             await attendanceMilestoneClaimableDetector.detect(ctx);
-
-        //         return {
-        //             matched: !milestone.matched,
-        //             message: !milestone.matched
-        //                 ? "ready_to_close"
-        //                 : "milestones_pending",
-        //             meta: {
-        //                 milestoneActive: milestone.matched,
-        //             },
-        //         };
-        //     },
-        // },
         {
             id: "detect-attendance-close-ready",
             state: "ATTENDANCE_CLOSE_READY",
             async detect(ctx) {
                 // --- chỉ close khi milestone phase đã kết thúc
-                if (ctx.variables.ATTENDANCE_MILESTONE_PHASE !== "true") {
+                if (!readBoolVar(ctx, AttendanceVars.milestonePhase)) {
                     return false;
                 }
 
-                if (ctx.variables.ATTENDANCE_POPUP_CONFIRMED !== "true") {
+                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
                     return false;
                 }
 
-                if (ctx.variables.ATTENDANCE_CLOSE_PHASE !== "true") {
+                if (!readBoolVar(ctx, AttendanceVars.closePhase)) {
                     return false;
                 }
 
@@ -2209,17 +2009,17 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             id: "detect-attendance-popup-open",
             state: "ATTENDANCE_POPUP_OPEN",
             async detect(ctx) {
-                if (ctx.variables.ATTENDANCE_POPUP_CONFIRMED === "true") {
+                if (readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
                     return attendancePopupAnchorDetector.detect(ctx);
                 }
 
                 const result = await attendancePopupVerifyDetector.detect(ctx);
 
                 if (result.matched) {
-                    setVar(ctx, "ATTENDANCE_RETRY_COUNT", "0");
-                    setVar(ctx, "ATTENDANCE_VERIFY_ARMED", "false");
-                    setVar(ctx, "ATTENDANCE_VERIFY_DEADLINE_ITERATION", "");
-                    setVar(ctx, "ATTENDANCE_POPUP_CONFIRMED", "true");
+                    setVar(ctx, AttendanceVars.retryCount, "0");
+                    setVar(ctx, AttendanceVars.verifyArmed, "false");
+                    setVar(ctx, AttendanceVars.verifyDeadlineIteration, "");
+                    setVar(ctx, AttendanceVars.popupConfirmed, "true");
                 }
 
                 return result;
@@ -2231,7 +2031,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             id: "detect-attendance-flow-done",
             state: "ATTENDANCE_FLOW_DONE",
             async detect(ctx) {
-                if (ctx.variables.ATTENDANCE_FLOW_RESULT !== "success") {
+                if (ctx.variables[AttendanceVars.flowResult] !== "success") {
                     return false;
                 }
 
@@ -2244,7 +2044,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                     matched: player.found && player.visible === true,
                     message: "attendance_flow_success",
                     meta: {
-                        flowResult: ctx.variables.ATTENDANCE_FLOW_RESULT,
+                        flowResult: ctx.variables[AttendanceVars.flowResult],
                     },
                 };
             },
@@ -2255,7 +2055,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             state: "ATTENDANCE_FLOW_FAILED",
             async detect(ctx) {
                 const abortReason =
-                    ctx.variables.ATTENDANCE_ABORT_REASON?.trim();
+                    ctx.variables[AttendanceVars.abortReason]?.trim();
 
                 if (!abortReason) {
                     return false;
@@ -2270,13 +2070,13 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                         abortReason,
                         retryCount: readIntVar(
                             ctx,
-                            "ATTENDANCE_RETRY_COUNT",
+                            AttendanceVars.retryCount,
                             0,
                         ),
                         lastFailureKind:
-                            ctx.variables.ATTENDANCE_LAST_FAILURE_KIND,
+                            ctx.variables[AttendanceVars.lastFailureKind],
                         lastFailureMessage:
-                            ctx.variables.ATTENDANCE_LAST_FAILURE_MESSAGE,
+                            ctx.variables[AttendanceVars.lastFailureMessage],
                     },
                 };
             },
@@ -2522,7 +2322,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 }
 
                 const abortReason =
-                    ctx.variables.ATTENDANCE_ABORT_REASON?.trim();
+                    ctx.variables[AttendanceVars.abortReason]?.trim();
                 if (abortReason) {
                     return {
                         allowed: false,
@@ -2530,11 +2330,15 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                     };
                 }
 
-                const retryCount = readIntVar(ctx, "ATTENDANCE_RETRY_COUNT", 0);
+                const retryCount = readIntVar(
+                    ctx,
+                    AttendanceVars.retryCount,
+                    0,
+                );
                 if (retryCount >= ATTENDANCE_MAX_RETRY) {
                     markAttendanceAborted(
                         ctx,
-                        ctx.variables.ATTENDANCE_LAST_FAILURE_KIND?.trim() ||
+                        ctx.variables[AttendanceVars.lastFailureKind]?.trim() ||
                             "attendance_max_retry_exceeded",
                     );
 
@@ -2548,13 +2352,13 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                     };
                 }
 
-                const armed = ctx.variables.ATTENDANCE_VERIFY_ARMED === "true";
+                const armed = readBoolVar(ctx, AttendanceVars.verifyArmed);
 
                 // Đang trong verify window sau click → chưa retry ngay
                 if (armed) {
                     const deadline = readIntVar(
                         ctx,
-                        "ATTENDANCE_VERIFY_DEADLINE_ITERATION",
+                        AttendanceVars.verifyDeadlineIteration,
                         0,
                     );
 
@@ -2575,9 +2379,9 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                         "attendance_click_no_popup",
                     );
 
-                    setVar(ctx, "ATTENDANCE_VERIFY_ARMED", "false");
-                    setVar(ctx, "ATTENDANCE_VERIFY_ARMED_AT_ITERATION", "");
-                    setVar(ctx, "ATTENDANCE_VERIFY_DEADLINE_ITERATION", "");
+                    setVar(ctx, AttendanceVars.verifyArmed, "false");
+                    setVar(ctx, AttendanceVars.verifyArmedAtIteration, "");
+                    setVar(ctx, AttendanceVars.verifyDeadlineIteration, "");
 
                     if (nextRetry >= ATTENDANCE_MAX_RETRY) {
                         markAttendanceAborted(
@@ -2616,12 +2420,12 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             async buildAction(ctx) {
                 // đảm bảo retry counter luôn tồn tại
                 if (ctx.setVariable) {
-                    if (!ctx.variables.ATTENDANCE_RETRY_COUNT) {
-                        ctx.setVariable("ATTENDANCE_RETRY_COUNT", "0");
+                    if (!ctx.variables[AttendanceVars.retryCount]) {
+                        ctx.setVariable(AttendanceVars.retryCount, "0");
                     }
 
                     ctx.setVariable(
-                        "ATTENDANCE_VERIFY_WINDOW_ITERATIONS",
+                        AttendanceVars.verifyWindowIterations,
                         String(ATTENDANCE_VERIFY_WINDOW_ITERATIONS),
                     );
                 }
@@ -2655,7 +2459,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                                 "Move pointer away from attendance hotspot",
                         },
                         {
-                            id: "wait-attendance-popup",
+                            id: "wait-after-hover-mouse",
                             kind: "WAIT",
                             durationMs: 200,
                         },
@@ -2711,9 +2515,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 return { allowed: true };
             },
             async buildAction(ctx) {
-                if (ctx.setVariable) {
-                    ctx.setVariable("ATTENDANCE_MILESTONE_PHASE", "true");
-                }
+                enterAttendanceMilestonePhase(ctx);
                 return {
                     id: "action-advance-after-attendance-daily-done",
                     kind: "WAIT",
@@ -2728,10 +2530,11 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             to: "ATTENDANCE_POPUP_OPEN",
             priority: 45,
             async buildAction(ctx) {
-                if (ctx.setVariable) {
-                    ctx.setVariable("ATTENDANCE_MILESTONE_PHASE", "true");
-                    ctx.setVariable("ATTENDANCE_CLOSE_PHASE", "false");
-                }
+                // if (ctx.setVariable) {
+                //     ctx.setVariable(AttendanceVars.milestonePhase, "true");
+                //     ctx.setVariable(AttendanceVars.closePhase, "false");
+                // }
+                enterAttendanceMilestonePhase(ctx);
 
                 return {
                     id: "action-claim-attendance-milestone",
@@ -2754,9 +2557,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 return { allowed: true };
             },
             async buildAction(ctx) {
-                if (ctx.setVariable) {
-                    ctx.setVariable("ATTENDANCE_CLOSE_PHASE", "true");
-                }
+                enterAttendanceClosePhase(ctx);
                 return {
                     id: "action-prepare-close-attendance-popup",
                     kind: "WAIT",
@@ -2773,9 +2574,9 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             async buildAction(ctx) {
                 if (ctx.setVariable) {
                     ctx.setVariable(
-                        "ATTENDANCE_CLOSE_ATTEMPT",
+                        AttendanceVars.closeAttempt,
                         String(
-                            readIntVar(ctx, "ATTENDANCE_CLOSE_ATTEMPT", 0) + 1,
+                            readIntVar(ctx, AttendanceVars.closeAttempt, 0) + 1,
                         ),
                     );
                 }
@@ -2799,9 +2600,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                     player.visible === true &&
                     ctx.setVariable
                 ) {
-                    setVar(ctx, "ATTENDANCE_MILESTONE_PHASE", "false");
-                    setVar(ctx, "ATTENDANCE_POPUP_CONFIRMED", "false");
-                    setVar(ctx, "ATTENDANCE_CLOSE_PHASE", "false");
+                    clearAttendancePhases(ctx);
                     markAttendanceFlowSuccess(ctx);
                     return true;
                 }
