@@ -18,7 +18,7 @@ export interface TemplateMatchDetectorConfig {
     overlayLabel?: string;
 
     threshold?: number;
-    scales?: number[];
+    scales?: readonly number[];
 
     roi?: {
         xRatio: number;
@@ -113,7 +113,7 @@ export function createTemplateMatchDetector(
         const result = matchTemplateMultiScale(buffer, config.template, {
             roi: config.roi,
             threshold: config.threshold,
-            scales: config.scales,
+            scales: config.scales ? [...config.scales] : undefined,
         });
 
         const scoreBand = resolveScoreBand(result.score, thresholdUsed);

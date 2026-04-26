@@ -62,6 +62,182 @@ const AttendanceVars = {
     flowResult: "ATTENDANCE_FLOW_RESULT",
 } as const;
 
+type RatioRoi = {
+    xRatio: number;
+    yRatio: number;
+    widthRatio: number;
+    heightRatio: number;
+};
+
+type RelativeCellBox = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+};
+
+const AttendanceConfig = {
+    detectors: {
+        icon: {
+            threshold: 0.75,
+            scales: [0.85, 0.9, 1.0, 1.1],
+            roi: {
+                xRatio: 0.68,
+                yRatio: 0.08,
+                widthRatio: 0.22,
+                heightRatio: 0.22,
+            } satisfies RatioRoi,
+        },
+
+        popupHeader: {
+            roi: {
+                xRatio: 0.44,
+                yRatio: 0.12,
+                widthRatio: 0.32,
+                heightRatio: 0.14,
+            } satisfies RatioRoi,
+        },
+
+        popupCloseButton: {
+            roi: {
+                xRatio: 0.65,
+                yRatio: 0.02,
+                widthRatio: 0.3,
+                heightRatio: 0.25,
+            } satisfies RatioRoi,
+        },
+
+        dailyRewardPopup: {
+            roi: {
+                xRatio: 0.43,
+                yRatio: 0.33,
+                widthRatio: 0.15,
+                heightRatio: 0.1,
+            } satisfies RatioRoi,
+        },
+
+        dailyRewardCloseButton: {
+            roi: {
+                xRatio: 0.63,
+                yRatio: 0.28,
+                widthRatio: 0.08,
+                heightRatio: 0.15,
+            } satisfies RatioRoi,
+        },
+    },
+
+    milestone: {
+        days: [2, 5, 10, 20, 30] as const,
+
+        slotRois: [
+            {
+                xRatio: 0.36,
+                yRatio: 0.866,
+                widthRatio: 0.048,
+                heightRatio: 0.0946,
+            },
+            {
+                xRatio: 0.45,
+                yRatio: 0.862,
+                widthRatio: 0.049,
+                heightRatio: 0.0965,
+            },
+            {
+                xRatio: 0.555,
+                yRatio: 0.866,
+                widthRatio: 0.048,
+                heightRatio: 0.095,
+            },
+            {
+                xRatio: 0.66,
+                yRatio: 0.866,
+                widthRatio: 0.048,
+                heightRatio: 0.095,
+            },
+            {
+                xRatio: 0.76,
+                yRatio: 0.866,
+                widthRatio: 0.048,
+                heightRatio: 0.095,
+            },
+        ] satisfies RatioRoi[],
+
+        barRoi: {
+            xRatio: 0.362,
+            yRatio: 0.857,
+            widthRatio: 0.448,
+            heightRatio: 0.11,
+        } satisfies RatioRoi,
+    },
+
+    dailyGrid: {
+        cols: 6,
+        rows: 5,
+
+        cyanMatchThreshold: 0.72,
+        cyanWinnerMargin: 0.05,
+        bestCellFallbackThreshold: 0.06,
+
+        popupRelativeGridBox: {
+            xOffsetByHeaderWidth: -0.95,
+            yOffsetByHeaderHeight: 3.08,
+            widthByHeaderWidth: 2.9,
+            heightByHeaderHeight: 11,
+        },
+
+        cyanSampleBoxInCell: {
+            x: 0.66,
+            y: 0.26,
+            width: 0.26,
+            height: 0.36,
+        } satisfies RelativeCellBox,
+
+        tomorrowMarkerBoxInCell: {
+            x: 0.31,
+            y: 0.72,
+            width: 0.72,
+            height: 0.25,
+        } satisfies RelativeCellBox,
+
+        tomorrowMarkerMatch: {
+            threshold: 0.72,
+            scales: [0.9, 1.0, 1.1],
+        },
+
+        tickBoxInCell: {
+            x: 0.28,
+            y: 0.3,
+            width: 0.4,
+            height: 0.66,
+        } satisfies RelativeCellBox,
+
+        tickMatch: {
+            threshold: 0.7,
+            scales: [0.85, 0.95, 1.0, 1.1],
+        },
+    },
+
+    retry: {
+        maxRetry: 3,
+        verifyWindowIterations: 2,
+    },
+
+    waits: {
+        afterGameLoadMs: 2500,
+        afterAttendanceClickShortMs: 200,
+        afterAttendanceClickSettleMs: 700,
+        afterDailyRewardCloseMs: 100,
+        prepareCloseAttendancePopupMs: 100,
+    },
+
+    interactions: {
+        pointerAwayAfterAttendanceClick: {
+            xRatio: 0.08,
+            yRatio: 0.92,
+        },
+    },
+} as const;
+
 const attendanceTomorrowReceiveTemplate = (
     templates as typeof templates & {
         attendanceTomorrowReceive?: Buffer;
@@ -135,14 +311,9 @@ const attendanceIconDetector = createTemplateMatchDetector({
     template: templates.attendanceIcon,
     screenshotLabel: "detect_attendance_icon",
     overlayLabel: "attendance-icon",
-    threshold: 0.75,
-    scales: [0.85, 0.9, 1.0, 1.1],
-    roi: {
-        xRatio: 0.68,
-        yRatio: 0.08,
-        widthRatio: 0.22,
-        heightRatio: 0.22,
-    },
+    threshold: AttendanceConfig.detectors.icon.threshold,
+    scales: AttendanceConfig.detectors.icon.scales,
+    roi: AttendanceConfig.detectors.icon.roi,
     buildMessage: ({ matched, score }) =>
         `ATTENDANCE ICON => ${matched ? "MATCH" : "MISS"} (${score.toFixed(3)})`,
 });
@@ -154,12 +325,7 @@ const attendancePopupVerifyDetector = createTemplateMatchDetector({
     overlayLabel: "attendance-popup-verify",
     shouldRun: (ctx) => readBoolVar(ctx, AttendanceVars.verifyArmed),
     skipReason: "attendance_verify_not_armed",
-    roi: {
-        xRatio: 0.44,
-        yRatio: 0.12,
-        widthRatio: 0.32,
-        heightRatio: 0.14,
-    },
+    roi: AttendanceConfig.detectors.popupHeader.roi,
     buildMessage: ({ matched, score }) =>
         `ATTENDANCE POPUP VERIFY => ${matched ? "MATCH" : "MISS"} (${score.toFixed(3)})`,
     buildMeta: ({ ctx, matched }) => ({
@@ -186,12 +352,7 @@ const attendancePopupAnchorDetector = createTemplateMatchDetector({
     template: templates.attendanceHeader,
     screenshotLabel: "detect_attendance_popup_anchor",
     overlayLabel: "attendance-popup-anchor",
-    roi: {
-        xRatio: 0.44,
-        yRatio: 0.12,
-        widthRatio: 0.32,
-        heightRatio: 0.14,
-    },
+    roi: AttendanceConfig.detectors.popupHeader.roi,
     buildMessage: ({ matched, score }) =>
         `ATTENDANCE POPUP ANCHOR => ${matched ? "MATCH" : "MISS"} (${score.toFixed(3)})`,
 });
@@ -272,13 +433,7 @@ const attendanceTodayDoneDetector = {
     },
 };
 
-const MILESTONE_SLOT_ROIS = [
-    { xRatio: 0.36, yRatio: 0.866, widthRatio: 0.048, heightRatio: 0.0946 }, // 2-day
-    { xRatio: 0.45, yRatio: 0.862, widthRatio: 0.049, heightRatio: 0.0965 }, // 5-day
-    { xRatio: 0.548, yRatio: 0.862, widthRatio: 0.052, heightRatio: 0.098 }, // 10-day
-    { xRatio: 0.66, yRatio: 0.866, widthRatio: 0.048, heightRatio: 0.095 }, // 20-day
-    { xRatio: 0.76, yRatio: 0.866, widthRatio: 0.048, heightRatio: 0.095 }, // 30-day
-];
+const MILESTONE_SLOT_ROIS = AttendanceConfig.milestone.slotRois;
 
 const milestoneDetectors = [
     createTemplateMatchDetector({
@@ -319,7 +474,7 @@ const attendanceMilestoneClaimableDetector = {
             result: MilestoneDetectorResult;
         }> = [];
 
-        const DAYS = [2, 5, 10, 20, 30] as const;
+        const DAYS = AttendanceConfig.milestone.days;
 
         for (let i = 0; i < milestoneDetectors.length; i++) {
             const detector = milestoneDetectors[i];
@@ -383,10 +538,12 @@ const attendanceMilestoneClaimableDetector = {
                 const shapes: DiagnosticOverlayMeta["shapes"] = [];
 
                 // full milestone bar roi
-                const barX = Math.round(0.362 * width);
-                const barY = Math.round(0.857 * height);
-                const barW = Math.round(0.448 * width);
-                const barH = Math.round(0.11 * height);
+                const milestoneBarRoi = AttendanceConfig.milestone.barRoi;
+
+                const barX = Math.round(milestoneBarRoi.xRatio * width);
+                const barY = Math.round(milestoneBarRoi.yRatio * height);
+                const barW = Math.round(milestoneBarRoi.widthRatio * width);
+                const barH = Math.round(milestoneBarRoi.heightRatio * height);
 
                 shapes.push({
                     type: "box",
@@ -521,12 +678,7 @@ const attendancePopupCloseButtonDetector = createTemplateMatchDetector({
     template: templates.attendanceClose,
     screenshotLabel: "detect_attendance_popup_close_button",
     overlayLabel: "attendance-popup-close-button",
-    roi: {
-        xRatio: 0.65,
-        yRatio: 0.02,
-        widthRatio: 0.3,
-        heightRatio: 0.25,
-    },
+    roi: AttendanceConfig.detectors.popupCloseButton.roi,
     buildMessage: ({ matched, score }) =>
         `ATTENDANCE POPUP CLOSE BUTTON => ${matched ? "MATCH" : "MISS"} (${score.toFixed(3)})`,
 });
@@ -536,12 +688,7 @@ const attendanceDailyRewardPopupDetector = createTemplateMatchDetector({
     template: templates.headerPopupWard,
     screenshotLabel: "detect_attendance_daily_reward_popup",
     overlayLabel: "attendance-daily-reward-popup",
-    roi: {
-        xRatio: 0.43,
-        yRatio: 0.33,
-        widthRatio: 0.15,
-        heightRatio: 0.1,
-    },
+    roi: AttendanceConfig.detectors.dailyRewardPopup.roi,
     buildMessage: ({ matched, score }) =>
         `ATTENDANCE DAILY REWARD POPUP => ${matched ? "MATCH" : "MISS"} (${score.toFixed(3)})`,
 });
@@ -551,12 +698,7 @@ const attendanceDailyRewardPopupCloseDetector = createTemplateMatchDetector({
     template: templates.closeButtonReward,
     screenshotLabel: "detect_attendance_daily_reward_popup_close",
     overlayLabel: "attendance-daily-reward-popup-close",
-    roi: {
-        xRatio: 0.63,
-        yRatio: 0.28,
-        widthRatio: 0.08,
-        heightRatio: 0.15,
-    },
+    roi: AttendanceConfig.detectors.dailyRewardCloseButton.roi,
     buildMessage: ({ matched, score }) =>
         `ATTENDANCE DAILY REWARD CLOSE BUTTON => ${matched ? "MATCH" : "MISS"} (${score.toFixed(3)})`,
 });
@@ -605,22 +747,12 @@ type GridCellBox = {
     index: number;
 };
 
-type AttendanceTodayCellScanResult = {
-    found: boolean;
-    bestCell?: GridCellBox;
-    bestRatio: number;
-    cellRatios: Array<{
-        index: number;
-        row: number;
-        col: number;
-        ratio: number;
-    }>;
-};
-
-const ATTENDANCE_GRID_COLS = 6;
-const ATTENDANCE_GRID_ROWS = 5;
-const ATTENDANCE_CELL_MATCH_THRESHOLD = 0.72;
-const ATTENDANCE_CELL_WINNER_MARGIN = 0.05;
+const ATTENDANCE_GRID_COLS = AttendanceConfig.dailyGrid.cols;
+const ATTENDANCE_GRID_ROWS = AttendanceConfig.dailyGrid.rows;
+const ATTENDANCE_CELL_MATCH_THRESHOLD =
+    AttendanceConfig.dailyGrid.cyanMatchThreshold;
+const ATTENDANCE_CELL_WINNER_MARGIN =
+    AttendanceConfig.dailyGrid.cyanWinnerMargin;
 
 type PixelBox = {
     x: number;
@@ -678,11 +810,17 @@ function resolveAttendanceGridBoxFromPopupHeader(
      * popup-relative grid ROI
      * Tune tại đây nếu cần, không còn hardcode theo full-screen nữa.
      */
+    const grid = AttendanceConfig.dailyGrid.popupRelativeGridBox;
+
     const gridBox = {
-        x: Math.round(headerBox.x - headerBox.width * 0.95),
-        y: Math.round(headerBox.y + headerBox.height * 3.08),
-        width: Math.round(headerBox.width * 2.9),
-        height: Math.round(headerBox.height * 11),
+        x: Math.round(
+            headerBox.x + headerBox.width * grid.xOffsetByHeaderWidth,
+        ),
+        y: Math.round(
+            headerBox.y + headerBox.height * grid.yOffsetByHeaderHeight,
+        ),
+        width: Math.round(headerBox.width * grid.widthByHeaderWidth),
+        height: Math.round(headerBox.height * grid.heightByHeaderHeight),
     };
 
     return clampBoxToBounds(gridBox, screenshotWidth, screenshotHeight);
@@ -729,12 +867,14 @@ function buildInnerCellBox(
     screenshotWidth: number,
     screenshotHeight: number,
 ): PixelBox {
+    const sampleBox = AttendanceConfig.dailyGrid.cyanSampleBoxInCell;
+
     return clampBoxToBounds(
         {
-            x: cell.x + Math.floor(cell.width * 0.66),
-            y: cell.y + Math.floor(cell.height * 0.26),
-            width: Math.max(1, Math.floor(cell.width * 0.26)),
-            height: Math.max(1, Math.floor(cell.height * 0.36)),
+            x: cell.x + Math.floor(cell.width * sampleBox.x),
+            y: cell.y + Math.floor(cell.height * sampleBox.y),
+            width: Math.max(1, Math.floor(cell.width * sampleBox.width)),
+            height: Math.max(1, Math.floor(cell.height * sampleBox.height)),
         },
         screenshotWidth,
         screenshotHeight,
@@ -871,12 +1011,14 @@ function buildTomorrowMarkerBox(
     screenshotWidth: number,
     screenshotHeight: number,
 ): PixelBox {
+    const markerBox = AttendanceConfig.dailyGrid.tomorrowMarkerBoxInCell;
+
     return clampBoxToBounds(
         {
-            x: cell.x + Math.floor(cell.width * 0.31),
-            y: cell.y + Math.floor(cell.height * 0.72),
-            width: Math.max(1, Math.floor(cell.width * 0.72)),
-            height: Math.max(1, Math.floor(cell.height * 0.25)),
+            x: cell.x + Math.floor(cell.width * markerBox.x),
+            y: cell.y + Math.floor(cell.height * markerBox.y),
+            width: Math.max(1, Math.floor(cell.width * markerBox.width)),
+            height: Math.max(1, Math.floor(cell.height * markerBox.height)),
         },
         screenshotWidth,
         screenshotHeight,
@@ -888,15 +1030,14 @@ function buildTickCheckBox(
     screenshotWidth: number,
     screenshotHeight: number,
 ): PixelBox {
-    /**
-     * Tick xanh thường nằm ở nửa trái / phía trên của cell.
-     */
+    const tickBox = AttendanceConfig.dailyGrid.tickBoxInCell;
+
     return clampBoxToBounds(
         {
-            x: cell.x + Math.floor(cell.width * 0.28),
-            y: cell.y + Math.floor(cell.height * 0.3),
-            width: Math.max(1, Math.floor(cell.width * 0.4)),
-            height: Math.max(1, Math.floor(cell.height * 0.66)),
+            x: cell.x + Math.floor(cell.width * tickBox.x),
+            y: cell.y + Math.floor(cell.height * tickBox.y),
+            width: Math.max(1, Math.floor(cell.width * tickBox.width)),
+            height: Math.max(1, Math.floor(cell.height * tickBox.height)),
         },
         screenshotWidth,
         screenshotHeight,
@@ -910,12 +1051,12 @@ function matchTemplateInPixelBox(
     screenshotHeight: number,
     box: PixelBox,
     threshold: number,
-    scales: number[],
+    scales: readonly number[],
 ) {
     return matchTemplateMultiScale(screenshotBuffer, templateBuffer, {
         roi: pixelBoxToRatioRoi(box, screenshotWidth, screenshotHeight),
         threshold,
-        scales,
+        scales: [...scales],
     });
 }
 
@@ -963,7 +1104,8 @@ async function classifyAttendanceTodayCell(
 
     const scan = scanAttendanceGridFromPopupHeader(buffer, popup.matchBox);
 
-    const ATTENDANCE_TODAY_BEST_CELL_FALLBACK_THRESHOLD = 0.06;
+    const ATTENDANCE_TODAY_BEST_CELL_FALLBACK_THRESHOLD =
+        AttendanceConfig.dailyGrid.bestCellFallbackThreshold;
 
     console.log(
         "[ATTENDANCE][CLASSIFY_START]",
@@ -1005,8 +1147,8 @@ async function classifyAttendanceTodayCell(
                 width,
                 height,
                 tomorrowBox,
-                0.72,
-                [0.9, 1.0, 1.1],
+                AttendanceConfig.dailyGrid.tomorrowMarkerMatch.threshold,
+                AttendanceConfig.dailyGrid.tomorrowMarkerMatch.scales,
             );
 
             if (result.score > tomorrowScore) {
@@ -1019,7 +1161,9 @@ async function classifyAttendanceTodayCell(
                     cellIndex: cell.index,
                     matched: result.matched,
                     score: Number(result.score.toFixed(4)),
-                    threshold: 0.72,
+                    threshold:
+                        AttendanceConfig.dailyGrid.tomorrowMarkerMatch
+                            .threshold,
                     tomorrowBox,
                 }),
             );
@@ -1054,7 +1198,7 @@ async function classifyAttendanceTodayCell(
         "[ATTENDANCE][TOMORROW_SUMMARY]",
         JSON.stringify({
             bestTomorrowScore: Number(tomorrowScore.toFixed(4)),
-            threshold: 0.72,
+            threshold: AttendanceConfig.dailyGrid.tomorrowMarkerMatch.threshold,
             found: tomorrowCell ? true : false,
             tomorrowCellIndex: tomorrowCell?.index ?? null,
         }),
@@ -1138,8 +1282,8 @@ async function classifyAttendanceTodayCell(
             width,
             height,
             tickBox,
-            0.35,
-            [0.85, 0.95, 1.0, 1.1],
+            AttendanceConfig.dailyGrid.tickMatch.threshold,
+            AttendanceConfig.dailyGrid.tickMatch.scales,
         );
 
         tickMatched = tickResult.matched;
@@ -1151,7 +1295,7 @@ async function classifyAttendanceTodayCell(
                 todayCellIndex: todayCell.index,
                 tickMatched,
                 tickScore: Number(tickScore.toFixed(4)),
-                threshold: 0.7,
+                threshold: AttendanceConfig.dailyGrid.tickMatch.threshold,
                 tickBox,
                 cyanRatio: Number(cyanRatio.toFixed(4)),
                 todayCellBox: {
@@ -1764,8 +1908,9 @@ function buildAttendanceSemanticDebugOverlay(
     ];
 }
 
-const ATTENDANCE_MAX_RETRY = 3;
-const ATTENDANCE_VERIFY_WINDOW_ITERATIONS = 2;
+const ATTENDANCE_MAX_RETRY = AttendanceConfig.retry.maxRetry;
+const ATTENDANCE_VERIFY_WINDOW_ITERATIONS =
+    AttendanceConfig.retry.verifyWindowIterations;
 
 function readIntVar(
     ctx: { variables: Record<string, string> },
@@ -1798,7 +1943,7 @@ function clearAttendanceRuntime(ctx: {
     setVar(ctx, AttendanceVars.lastFailureMessage, "");
     setVar(ctx, AttendanceVars.lastFailureAtIteration, "");
     setVar(ctx, AttendanceVars.abortReason, "");
-    setVar(ctx, AttendanceVars.popupConfirmed, "false");
+    clearAttendancePhases(ctx);
 }
 
 function markAttendanceAborted(
@@ -1834,8 +1979,8 @@ function registerAttendanceRetry(
 function markAttendanceFlowSuccess(ctx: {
     setVariable?: (key: string, value: string) => void;
 }): void {
+    clearAttendancePhases(ctx);
     setVar(ctx, AttendanceVars.flowResult, "success");
-    setVar(ctx, AttendanceVars.milestonePhase, "false");
     setVar(ctx, AttendanceVars.abortReason, "");
 }
 
@@ -2436,7 +2581,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                         {
                             id: "wait-before-attendance",
                             kind: "WAIT",
-                            durationMs: 2500,
+                            durationMs: AttendanceConfig.waits.afterGameLoadMs,
                         },
                         {
                             id: "focus-game-host",
@@ -2453,20 +2598,26 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                         {
                             id: "move-pointer-away-after-attendance-click",
                             kind: "MOVE_RELATIVE_POINT",
-                            xRatio: 0.08,
-                            yRatio: 0.92,
+                            xRatio: AttendanceConfig.interactions
+                                .pointerAwayAfterAttendanceClick.xRatio,
+                            yRatio: AttendanceConfig.interactions
+                                .pointerAwayAfterAttendanceClick.yRatio,
                             description:
                                 "Move pointer away from attendance hotspot",
                         },
                         {
                             id: "wait-after-hover-mouse",
                             kind: "WAIT",
-                            durationMs: 200,
+                            durationMs:
+                                AttendanceConfig.waits
+                                    .afterAttendanceClickShortMs,
                         },
                         {
-                            id: "wait-attendance-popup",
+                            id: "wait-after-attendance-click-settle",
                             kind: "WAIT",
-                            durationMs: 700,
+                            durationMs:
+                                AttendanceConfig.waits
+                                    .afterAttendanceClickSettleMs,
                         },
                     ],
                 };
@@ -2519,7 +2670,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 return {
                     id: "action-advance-after-attendance-daily-done",
                     kind: "WAIT",
-                    durationMs: 100,
+                    durationMs: AttendanceConfig.waits.afterDailyRewardCloseMs,
                 };
             },
         },
@@ -2530,10 +2681,6 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             to: "ATTENDANCE_POPUP_OPEN",
             priority: 45,
             async buildAction(ctx) {
-                // if (ctx.setVariable) {
-                //     ctx.setVariable(AttendanceVars.milestonePhase, "true");
-                //     ctx.setVariable(AttendanceVars.closePhase, "false");
-                // }
                 enterAttendanceMilestonePhase(ctx);
 
                 return {
@@ -2561,7 +2708,8 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 return {
                     id: "action-prepare-close-attendance-popup",
                     kind: "WAIT",
-                    durationMs: 100,
+                    durationMs:
+                        AttendanceConfig.waits.prepareCloseAttendancePopupMs,
                 };
             },
         },
