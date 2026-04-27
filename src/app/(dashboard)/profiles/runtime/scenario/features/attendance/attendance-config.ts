@@ -112,7 +112,7 @@ export const AttendanceConfig = {
 
         cyanMatchThreshold: 0.72,
         cyanWinnerMargin: 0.05,
-        bestCellFallbackThreshold: 0.06,
+        bestCellFallbackThreshold: 0.72,
 
         popupRelativeGridBox: {
             xOffsetByHeaderWidth: -0.95,

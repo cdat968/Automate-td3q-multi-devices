@@ -3,6 +3,7 @@ import {
     buildAttendanceSemanticDebugOverlay,
     type AttendanceDailyCellClassification,
 } from "./attendance-daily-classification";
+import { getOrCreateAttendanceDailyClassification } from "./attendance-daily-cache";
 
 export type ClassifyAttendanceTodayCell = (
     ctx: ExecutionContext,
@@ -13,7 +14,10 @@ export function createAttendanceTodayDetectors(
 ) {
     const attendanceTodayClaimableDetector = {
         async detect(ctx: ExecutionContext) {
-            const classified = await classifyAttendanceTodayCell(ctx);
+            const classified = await getOrCreateAttendanceDailyClassification(
+                ctx,
+                () => classifyAttendanceTodayCell(ctx),
+            );
 
             return {
                 matched: classified.state === "READY",
@@ -46,7 +50,10 @@ export function createAttendanceTodayDetectors(
 
     const attendanceTodayDoneDetector = {
         async detect(ctx: ExecutionContext) {
-            const classified = await classifyAttendanceTodayCell(ctx);
+            const classified = await getOrCreateAttendanceDailyClassification(
+                ctx,
+                () => classifyAttendanceTodayCell(ctx),
+            );
 
             console.log(
                 `[ATTENDANCE][TODAY_DONE] state=${classified.state} reason=${classified.reason} tickMatched=${classified.meta.tickMatched} tickScore=${classified.meta.tickScore} tomorrowScore=${classified.meta.tomorrowScore} cyanRatio=${classified.meta.cyanRatio}`,

@@ -22,7 +22,7 @@ export type AttendanceDailyCellClassification = {
         tomorrowScore?: number;
         gridBestRatio?: number;
         bestCellIndex?: number;
-        templateMatched?: boolean;
+        popupMatched?: boolean;
         todayCellBox?: {
             x: number;
             y: number;
