@@ -3,26 +3,8 @@ import type { RuntimeTargetRef } from "../../actions/action-types";
 import { DiagnosticOverlayMeta } from "../../../diagnostics/diagnostic-types";
 import { AttendanceConfig } from "../features/attendance/attendance-config";
 import {
-    AttendanceVars,
-    clearAttendancePhases,
-    enterAttendanceClosePhase,
-    enterAttendanceMilestonePhase,
-    markAttendanceAborted,
-    markAttendanceFlowSuccess,
-    readBoolVar,
-    readIntVar,
-    registerAttendanceRetry,
-    setVar,
-} from "../features/attendance/attendance-runtime";
-import {
-    attendanceDailyRewardPopupCloseDetector,
-    attendanceDailyRewardPopupDetector,
-    attendanceIconDetector,
     attendancePopupAnchorDetector,
-    attendancePopupCloseButtonDetector,
-    attendancePopupVerifyDetector,
     attendanceTomorrowReceiveTemplate,
-    baseTemplateDetector,
     attendanceTodayCheckedTemplate,
 } from "../features/attendance/attendance-detectors";
 import {
@@ -39,8 +21,7 @@ import {
     matchTemplateInPixelBox,
 } from "../features/attendance/attendance-vision";
 import { AttendanceDailyCellClassification } from "../features/attendance/attendance-daily-classification";
-import { createAttendanceTodayDetectors } from "../features/attendance/attendance-today-detectors";
-import { attendanceMilestoneClaimableDetector } from "../features/attendance/attendance-milestone-detector";
+import { createAttendanceFlow } from "../features/attendance/attendance-flow";
 
 const targets = {
     emailInput: {
@@ -104,30 +85,31 @@ const targets = {
     } satisfies RuntimeTargetRef,
 };
 
-const { attendanceTodayClaimableDetector, attendanceTodayDoneDetector } =
-    createAttendanceTodayDetectors(classifyAttendanceTodayCell);
+const attendanceFlow = createAttendanceFlow({
+    targets: {
+        gameHost: targets.gameHost,
+    },
+    classifyAttendanceTodayCell,
+});
 
 async function classifyAttendanceTodayCell(
     ctx: ExecutionContext,
 ): Promise<AttendanceDailyCellClassification> {
-    const templateResult = await baseTemplateDetector.detect(ctx);
-
     const popup = await attendancePopupAnchorDetector.detect(ctx);
 
-    const screenshotPath =
-        templateResult.screenshotPath ?? popup.screenshotPath;
+    const screenshotPath = popup.screenshotPath;
 
     if (!popup.matched || !popup.matchBox) {
         return {
             state: "UNKNOWN",
             reason: "popup_anchor_not_matched",
-            screenshotPath: templateResult.screenshotPath,
-            attachments: templateResult.attachments,
-            overlays: templateResult.overlays,
+            screenshotPath: popup.screenshotPath,
+            attachments: popup.attachments,
+            overlays: popup.overlays,
             meta: {
-                templateMatched: templateResult.matched,
+                templateMatched: popup.matched,
             },
-            matchBox: templateResult.matchBox,
+            matchBox: popup.matchBox,
         };
     }
 
@@ -136,13 +118,13 @@ async function classifyAttendanceTodayCell(
         return {
             state: "UNKNOWN",
             reason: "no_screenshot",
-            screenshotPath: templateResult.screenshotPath,
-            attachments: templateResult.attachments,
-            overlays: templateResult.overlays,
+            screenshotPath: popup.screenshotPath,
+            attachments: popup.attachments,
+            overlays: popup.overlays,
             meta: {
-                templateMatched: templateResult.matched,
+                templateMatched: popup.matched,
             },
-            matchBox: templateResult.matchBox,
+            matchBox: popup.matchBox,
         };
     }
 
@@ -428,7 +410,7 @@ async function classifyAttendanceTodayCell(
         }),
     );
 
-    const finalOverlays = [...(templateResult.overlays ?? []), ...gridOverlay];
+    const finalOverlays = gridOverlay;
 
     console.log(
         "[ATTENDANCE][CLASSIFY_RETURN_OVERLAYS]",
@@ -465,8 +447,8 @@ async function classifyAttendanceTodayCell(
             state: "DONE",
             reason: "semantic_tick_on_today_cell",
             screenshotPath,
-            attachments: templateResult.attachments,
-            overlays: [...(templateResult.overlays ?? []), ...gridOverlay],
+            attachments: popup.attachments,
+            overlays: gridOverlay,
             meta: {
                 todayCellIndex: todayCell.index,
                 // todayCellSource,
@@ -478,7 +460,6 @@ async function classifyAttendanceTodayCell(
                 tomorrowScore: Number(tomorrowScore.toFixed(4)),
                 gridBestRatio: Number(scan.bestRatio.toFixed(4)),
                 bestCellIndex: scan.bestCell?.index,
-                templateMatched: templateResult.matched,
                 todayCellBox: todayCell
                     ? {
                           x: todayCell.x,
@@ -540,8 +521,8 @@ async function classifyAttendanceTodayCell(
             state: "READY",
             reason: "semantic_cyan_on_today_cell",
             screenshotPath,
-            overlays: [...(templateResult.overlays ?? []), ...gridOverlay],
-            attachments: templateResult.attachments,
+            overlays: gridOverlay,
+            attachments: popup.attachments,
             meta: {
                 todayCellIndex: todayCell.index,
                 // todayCellSource,
@@ -553,7 +534,6 @@ async function classifyAttendanceTodayCell(
                 tomorrowScore: Number(tomorrowScore.toFixed(4)),
                 gridBestRatio: Number(scan.bestRatio.toFixed(4)),
                 bestCellIndex: scan.bestCell?.index,
-                templateMatched: templateResult.matched,
                 todayCellBox: todayCell
                     ? {
                           x: todayCell.x,
@@ -614,8 +594,8 @@ async function classifyAttendanceTodayCell(
             state: "READY",
             reason: "fallback_best_cyan_cell",
             screenshotPath,
-            attachments: templateResult.attachments,
-            overlays: [...(templateResult.overlays ?? []), ...gridOverlay],
+            attachments: popup.attachments,
+            overlays: gridOverlay,
             meta: {
                 todayCellIndex: scan.bestCell.index,
                 // todayCellSource,
@@ -626,7 +606,6 @@ async function classifyAttendanceTodayCell(
                 tomorrowScore: Number(tomorrowScore.toFixed(4)),
                 gridBestRatio: Number(scan.bestRatio.toFixed(4)),
                 bestCellIndex: scan.bestCell.index,
-                templateMatched: templateResult.matched,
                 todayCellBox: scan.bestCell
                     ? {
                           x: scan.bestCell.x,
@@ -682,8 +661,8 @@ async function classifyAttendanceTodayCell(
             state: "DONE",
             reason: "fallback_no_tomorrow_no_cyan",
             screenshotPath,
-            attachments: templateResult.attachments,
-            overlays: [...(templateResult.overlays ?? []), ...gridOverlay],
+            attachments: popup.attachments,
+            overlays: gridOverlay,
             meta: {
                 todayCellIndex: undefined,
                 // todayCellSource,
@@ -695,7 +674,6 @@ async function classifyAttendanceTodayCell(
                 tomorrowScore: Number(tomorrowScore.toFixed(4)),
                 gridBestRatio: Number(scan.bestRatio.toFixed(4)),
                 bestCellIndex: scan.bestCell?.index,
-                templateMatched: templateResult.matched,
                 todayCellBox: undefined,
                 tomorrowCellBox: undefined,
                 tickBox: undefined,
@@ -708,60 +686,7 @@ async function classifyAttendanceTodayCell(
                       width: scan.bestCell.width,
                       height: scan.bestCell.height,
                   }
-                : templateResult.matchBox,
-        };
-    }
-
-    if (templateResult.matched && templateResult.matchBox) {
-        console.log(
-            "[ATTENDANCE][CLASSIFY_DECISION]",
-            JSON.stringify({
-                state: "READY",
-                reason: "fallback_template_match",
-                // todayCellSource,
-                templateMatched: templateResult.matched,
-                templateMatchBox: templateResult.matchBox,
-                tomorrowCellIndex: tomorrowCell?.index,
-                tomorrowScore: Number(tomorrowScore.toFixed(4)),
-                bestCellIndex: scan.bestCell?.index,
-                bestRatio: Number(scan.bestRatio.toFixed(4)),
-            }),
-        );
-        return {
-            state: "READY",
-            reason: "fallback_template_match",
-            screenshotPath,
-            attachments: templateResult.attachments,
-            overlays: [...(templateResult.overlays ?? []), ...gridOverlay],
-            meta: {
-                cyanRatio: Number(scan.bestRatio.toFixed(4)),
-                tickMatched: false,
-                tickScore: 0,
-                tomorrowMatched: Boolean(tomorrowCell),
-                tomorrowScore: Number(tomorrowScore.toFixed(4)),
-                gridBestRatio: Number(scan.bestRatio.toFixed(4)),
-                bestCellIndex: scan.bestCell?.index,
-                templateMatched: true,
-                todayCellBox: undefined,
-                tomorrowCellBox: tomorrowCell
-                    ? {
-                          x: tomorrowCell.x,
-                          y: tomorrowCell.y,
-                          width: tomorrowCell.width,
-                          height: tomorrowCell.height,
-                      }
-                    : undefined,
-                tickBox: undefined,
-                tomorrowMarkerBox: matchedTomorrowMarkerBox
-                    ? {
-                          x: matchedTomorrowMarkerBox.x,
-                          y: matchedTomorrowMarkerBox.y,
-                          width: matchedTomorrowMarkerBox.width,
-                          height: matchedTomorrowMarkerBox.height,
-                      }
-                    : undefined,
-            },
-            matchBox: templateResult.matchBox,
+                : undefined,
         };
     }
 
@@ -806,8 +731,8 @@ async function classifyAttendanceTodayCell(
             ? "semantic_today_cell_unresolved"
             : "no_semantic_marker_and_no_fallback_match",
         screenshotPath,
-        attachments: templateResult.attachments,
-        overlays: [...(templateResult.overlays ?? []), ...gridOverlay],
+        attachments: popup.attachments,
+        overlays: gridOverlay,
         meta: {
             todayCellIndex: todayCell?.index,
             // todayCellSource,
@@ -819,7 +744,6 @@ async function classifyAttendanceTodayCell(
             tomorrowScore: Number(tomorrowScore.toFixed(4)),
             gridBestRatio: Number(scan.bestRatio.toFixed(4)),
             bestCellIndex: scan.bestCell?.index,
-            templateMatched: templateResult.matched,
             todayCellBox: todayCell
                 ? {
                       x: todayCell.x,
@@ -867,13 +791,9 @@ async function classifyAttendanceTodayCell(
                     width: scan.bestCell.width,
                     height: scan.bestCell.height,
                 }
-              : templateResult.matchBox,
+              : undefined,
     };
 }
-
-const ATTENDANCE_MAX_RETRY = AttendanceConfig.retry.maxRetry;
-const ATTENDANCE_VERIFY_WINDOW_ITERATIONS =
-    AttendanceConfig.retry.verifyWindowIterations;
 
 export const td3qBrowserScenario: ScenarioDefinition = {
     id: "td3q-browser",
@@ -900,223 +820,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             },
         },
 
-        //ATTENDANCE_DAILY_READY
-        {
-            id: "detect-attendance-daily-ready",
-            state: "ATTENDANCE_DAILY_READY",
-            async detect(ctx) {
-                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed))
-                    return false;
-
-                const popup = await attendancePopupAnchorDetector.detect(ctx);
-                if (!popup.matched) return false;
-
-                return attendanceTodayClaimableDetector.detect(ctx);
-            },
-        },
-        //ATTENDANCE_DAILY_REWARD_POPUP_OPEN
-        {
-            id: "detect-attendance-daily-reward-popup-open",
-            state: "ATTENDANCE_DAILY_REWARD_POPUP_OPEN",
-            async detect(ctx) {
-                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed))
-                    return false;
-
-                // 1. Try close button first (preferred because it is actionable)
-                const closeMatch =
-                    await attendanceDailyRewardPopupCloseDetector.detect(ctx);
-                if (closeMatch.matched) return closeMatch;
-
-                // 2. Fallback to header detection
-                return attendanceDailyRewardPopupDetector.detect(ctx);
-            },
-        },
-
-        //ATTENDANCE_MILESTONE_READY
-        {
-            id: "detect-attendance-milestone-ready",
-            state: "ATTENDANCE_MILESTONE_READY",
-            async detect(ctx) {
-                if (!readBoolVar(ctx, AttendanceVars.milestonePhase))
-                    return false;
-                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed))
-                    return false;
-                const popup = await attendancePopupAnchorDetector.detect(ctx);
-                if (!popup.matched) return false;
-
-                return attendanceMilestoneClaimableDetector.detect(ctx);
-            },
-        },
-
-        //ATTENDANCE_DAILY_DONE
-        {
-            id: "detect-attendance-daily-done",
-            state: "ATTENDANCE_DAILY_DONE",
-            async detect(ctx) {
-                if (readBoolVar(ctx, AttendanceVars.milestonePhase))
-                    return false;
-
-                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed))
-                    return false;
-
-                const popup = await attendancePopupAnchorDetector.detect(ctx);
-                if (!popup.matched) return false;
-
-                return attendanceTodayDoneDetector.detect(ctx);
-            },
-        },
-
-        {
-            id: "detect-attendance-milestone-done",
-            state: "ATTENDANCE_MILESTONE_DONE",
-            async detect(ctx) {
-                if (readBoolVar(ctx, AttendanceVars.closePhase)) {
-                    return false;
-                }
-                // --- chỉ chạy khi milestone phase đang active
-                if (!readBoolVar(ctx, AttendanceVars.milestonePhase)) {
-                    return false;
-                }
-
-                // --- popup phải còn mở
-                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
-                    return false;
-                }
-
-                const popup = await attendancePopupAnchorDetector.detect(ctx);
-                if (!popup.matched) return false;
-
-                // --- scan milestone lại
-                const result =
-                    await attendanceMilestoneClaimableDetector.detect(ctx);
-
-                // --- nếu còn claimable → chưa done
-                if (result.matched) {
-                    return false;
-                }
-
-                // --- full scan zero match → DONE
-                return {
-                    matched: true,
-                    confidence: 1,
-                    message: "ATTENDANCE MILESTONE DONE",
-                };
-            },
-        },
-
-        {
-            id: "detect-attendance-close-ready",
-            state: "ATTENDANCE_CLOSE_READY",
-            async detect(ctx) {
-                // --- chỉ close khi milestone phase đã kết thúc
-                if (!readBoolVar(ctx, AttendanceVars.milestonePhase)) {
-                    return false;
-                }
-
-                if (!readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
-                    return false;
-                }
-
-                if (!readBoolVar(ctx, AttendanceVars.closePhase)) {
-                    return false;
-                }
-
-                const popup = await attendancePopupAnchorDetector.detect(ctx);
-                if (!popup.matched) return false;
-
-                // --- re-check milestone để đảm bảo không còn slot claimable
-                const result =
-                    await attendanceMilestoneClaimableDetector.detect(ctx);
-
-                if (result.matched) {
-                    return false;
-                }
-
-                return {
-                    matched: true,
-                    confidence: 1,
-                    message: "ATTENDANCE CLOSE READY",
-                };
-            },
-        },
-
-        //ATTENDANCE_POPUP_OPEN
-        {
-            id: "detect-attendance-popup-open",
-            state: "ATTENDANCE_POPUP_OPEN",
-            async detect(ctx) {
-                if (readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
-                    return attendancePopupAnchorDetector.detect(ctx);
-                }
-
-                const result = await attendancePopupVerifyDetector.detect(ctx);
-
-                if (result.matched) {
-                    setVar(ctx, AttendanceVars.retryCount, "0");
-                    setVar(ctx, AttendanceVars.verifyArmed, "false");
-                    setVar(ctx, AttendanceVars.verifyDeadlineIteration, "");
-                    setVar(ctx, AttendanceVars.popupConfirmed, "true");
-                }
-
-                return result;
-            },
-        },
-
-        //ATTENDANCE_FLOW_DONE
-        {
-            id: "detect-attendance-flow-done",
-            state: "ATTENDANCE_FLOW_DONE",
-            async detect(ctx) {
-                if (ctx.variables[AttendanceVars.flowResult] !== "success") {
-                    return false;
-                }
-
-                const player = await ctx.adapter.queryTarget(
-                    targets.gameHost,
-                    ctx.signal,
-                );
-
-                return {
-                    matched: player.found && player.visible === true,
-                    message: "attendance_flow_success",
-                    meta: {
-                        flowResult: ctx.variables[AttendanceVars.flowResult],
-                    },
-                };
-            },
-        },
-        //ATTENDANCE_FLOW_FAILED
-        {
-            id: "detect-attendance-open-failed",
-            state: "ATTENDANCE_FLOW_FAILED",
-            async detect(ctx) {
-                const abortReason =
-                    ctx.variables[AttendanceVars.abortReason]?.trim();
-
-                if (!abortReason) {
-                    return false;
-                }
-
-                return {
-                    matched: true,
-                    confidence: 1,
-                    message: `ATTENDANCE OPEN FAILED => ${abortReason}`,
-                    meta: {
-                        feature: "open_attendance_popup",
-                        abortReason,
-                        retryCount: readIntVar(
-                            ctx,
-                            AttendanceVars.retryCount,
-                            0,
-                        ),
-                        lastFailureKind:
-                            ctx.variables[AttendanceVars.lastFailureKind],
-                        lastFailureMessage:
-                            ctx.variables[AttendanceVars.lastFailureMessage],
-                    },
-                };
-            },
-        },
+        ...attendanceFlow.detectionRules,
         //game error
         {
             id: "detect-game-error",
@@ -1338,314 +1042,6 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 };
             },
         },
-        // open attendance popup
-        {
-            id: "open-attendance-popup",
-            from: "GAME_RUNNING",
-            to: "ATTENDANCE_POPUP_OPEN",
-            priority: 30,
-            async canRun(ctx) {
-                const player = await ctx.adapter.queryTarget(
-                    targets.gameHost,
-                    ctx.signal,
-                );
-
-                if (!player.found || player.visible !== true) {
-                    return {
-                        allowed: false,
-                        reason: "Game host not ready for attendance click",
-                    };
-                }
-
-                const abortReason =
-                    ctx.variables[AttendanceVars.abortReason]?.trim();
-                if (abortReason) {
-                    return {
-                        allowed: false,
-                        reason: `Attendance flow aborted: ${abortReason}`,
-                    };
-                }
-
-                const retryCount = readIntVar(
-                    ctx,
-                    AttendanceVars.retryCount,
-                    0,
-                );
-                if (retryCount >= ATTENDANCE_MAX_RETRY) {
-                    markAttendanceAborted(
-                        ctx,
-                        ctx.variables[AttendanceVars.lastFailureKind]?.trim() ||
-                            "attendance_max_retry_exceeded",
-                    );
-
-                    return {
-                        allowed: false,
-                        reason: "Attendance max retry exceeded",
-                        meta: {
-                            retryCount,
-                            maxRetry: ATTENDANCE_MAX_RETRY,
-                        },
-                    };
-                }
-
-                const armed = readBoolVar(ctx, AttendanceVars.verifyArmed);
-
-                // Đang trong verify window sau click → chưa retry ngay
-                if (armed) {
-                    const deadline = readIntVar(
-                        ctx,
-                        AttendanceVars.verifyDeadlineIteration,
-                        0,
-                    );
-
-                    if (ctx.iteration <= deadline) {
-                        return {
-                            allowed: false,
-                            reason: "Waiting attendance popup verify window",
-                            meta: {
-                                verifyDeadlineIteration: deadline,
-                                currentIteration: ctx.iteration,
-                            },
-                        };
-                    }
-
-                    // Hết verify window mà popup vẫn chưa mở → classify CLICK_NO_POPUP
-                    const nextRetry = registerAttendanceRetry(
-                        ctx,
-                        "attendance_click_no_popup",
-                    );
-
-                    setVar(ctx, AttendanceVars.verifyArmed, "false");
-                    setVar(ctx, AttendanceVars.verifyArmedAtIteration, "");
-                    setVar(ctx, AttendanceVars.verifyDeadlineIteration, "");
-
-                    if (nextRetry >= ATTENDANCE_MAX_RETRY) {
-                        markAttendanceAborted(
-                            ctx,
-                            "attendance_click_no_popup_max_retry",
-                        );
-
-                        return {
-                            allowed: false,
-                            reason: "Attendance click did not open popup within retry budget",
-                            meta: {
-                                retryCount: nextRetry,
-                                maxRetry: ATTENDANCE_MAX_RETRY,
-                            },
-                        };
-                    }
-
-                    return {
-                        allowed: true,
-                        reason: "Retry attendance after popup verify timeout",
-                        meta: {
-                            retryCount: nextRetry,
-                            maxRetry: ATTENDANCE_MAX_RETRY,
-                        },
-                    };
-                }
-
-                return {
-                    allowed: true,
-                    meta: {
-                        retryCount,
-                        maxRetry: ATTENDANCE_MAX_RETRY,
-                    },
-                };
-            },
-            async buildAction(ctx) {
-                // đảm bảo retry counter luôn tồn tại
-                if (ctx.setVariable) {
-                    if (!ctx.variables[AttendanceVars.retryCount]) {
-                        ctx.setVariable(AttendanceVars.retryCount, "0");
-                    }
-
-                    ctx.setVariable(
-                        AttendanceVars.verifyWindowIterations,
-                        String(ATTENDANCE_VERIFY_WINDOW_ITERATIONS),
-                    );
-                }
-                return {
-                    id: "action-open-attendance-popup",
-                    kind: "COMPOSITE",
-                    actions: [
-                        {
-                            id: "wait-before-attendance",
-                            kind: "WAIT",
-                            durationMs: AttendanceConfig.waits.afterGameLoadMs,
-                        },
-                        {
-                            id: "focus-game-host",
-                            kind: "FOCUS",
-                            target: targets.gameHost,
-                        },
-                        {
-                            kind: "CLICK_FROM_DETECTION",
-                            id: "click-attendance-hotspot",
-                            screenshotBefore: true,
-                            screenshotAfter: true,
-                            detectTarget: attendanceIconDetector.detect,
-                        },
-                        {
-                            id: "move-pointer-away-after-attendance-click",
-                            kind: "MOVE_RELATIVE_POINT",
-                            xRatio: AttendanceConfig.interactions
-                                .pointerAwayAfterAttendanceClick.xRatio,
-                            yRatio: AttendanceConfig.interactions
-                                .pointerAwayAfterAttendanceClick.yRatio,
-                            description:
-                                "Move pointer away from attendance hotspot",
-                        },
-                        {
-                            id: "wait-after-hover-mouse",
-                            kind: "WAIT",
-                            durationMs:
-                                AttendanceConfig.waits
-                                    .afterAttendanceClickShortMs,
-                        },
-                        {
-                            id: "wait-after-attendance-click-settle",
-                            kind: "WAIT",
-                            durationMs:
-                                AttendanceConfig.waits
-                                    .afterAttendanceClickSettleMs,
-                        },
-                    ],
-                };
-            },
-        },
-        // claim daily attendance
-        {
-            id: "claim-attendance-daily",
-            from: "ATTENDANCE_DAILY_READY",
-            to: "ATTENDANCE_DAILY_REWARD_POPUP_OPEN",
-            priority: 50,
-            async buildAction() {
-                return {
-                    id: "action-claim-attendance-daily",
-                    kind: "CLICK_FROM_DETECTION",
-                    screenshotBefore: true,
-                    screenshotAfter: true,
-                    detectTarget: attendanceTodayClaimableDetector.detect,
-                };
-            },
-        },
-        // close daily reward popup
-        {
-            id: "close-attendance-daily-reward-popup",
-            from: "ATTENDANCE_DAILY_REWARD_POPUP_OPEN",
-            to: "ATTENDANCE_POPUP_OPEN",
-            priority: 55,
-            async buildAction() {
-                return {
-                    id: "action-close-attendance-daily-reward-popup",
-                    kind: "CLICK_FROM_DETECTION",
-                    screenshotBefore: true,
-                    screenshotAfter: true,
-                    detectTarget:
-                        attendanceDailyRewardPopupCloseDetector.detect,
-                };
-            },
-        },
-        // handoff after daily done -> continue milestone evaluation
-        {
-            id: "advance-after-attendance-daily-done",
-            from: "ATTENDANCE_DAILY_DONE",
-            to: "ATTENDANCE_POPUP_OPEN",
-            priority: 46,
-            async canRun() {
-                return { allowed: true };
-            },
-            async buildAction(ctx) {
-                enterAttendanceMilestonePhase(ctx);
-                return {
-                    id: "action-advance-after-attendance-daily-done",
-                    kind: "WAIT",
-                    durationMs: AttendanceConfig.waits.afterDailyRewardCloseMs,
-                };
-            },
-        },
-        // claim attendance milestone
-        {
-            id: "claim-attendance-milestone",
-            from: "ATTENDANCE_MILESTONE_READY",
-            to: "ATTENDANCE_POPUP_OPEN",
-            priority: 45,
-            async buildAction(ctx) {
-                enterAttendanceMilestonePhase(ctx);
-
-                return {
-                    id: "action-claim-attendance-milestone",
-                    kind: "CLICK_FROM_DETECTION",
-                    screenshotBefore: true,
-                    screenshotAfter: true,
-                    detectTarget: attendanceMilestoneClaimableDetector.detect,
-                    // CLICK_FROM_DETECTION automatically uses matchBox center or metadata.clickPoint if available
-                };
-            },
-        },
-
-        //ATTENDANCE_MILESTONE_DONE
-        {
-            id: "prepare-close-attendance-popup",
-            from: "ATTENDANCE_MILESTONE_DONE",
-            to: "ATTENDANCE_CLOSE_READY",
-            priority: 44,
-            async canRun() {
-                return { allowed: true };
-            },
-            async buildAction(ctx) {
-                enterAttendanceClosePhase(ctx);
-                return {
-                    id: "action-prepare-close-attendance-popup",
-                    kind: "WAIT",
-                    durationMs:
-                        AttendanceConfig.waits.prepareCloseAttendancePopupMs,
-                };
-            },
-        },
-        //close attendance popup
-        {
-            id: "close-attendance-popup",
-            from: "ATTENDANCE_CLOSE_READY",
-            to: "GAME_RUNNING",
-            priority: 40,
-            async buildAction(ctx) {
-                if (ctx.setVariable) {
-                    ctx.setVariable(
-                        AttendanceVars.closeAttempt,
-                        String(
-                            readIntVar(ctx, AttendanceVars.closeAttempt, 0) + 1,
-                        ),
-                    );
-                }
-
-                return {
-                    id: "action-close-attendance-popup",
-                    kind: "CLICK_FROM_DETECTION",
-                    screenshotBefore: true,
-                    screenshotAfter: true,
-                    detectTarget: attendancePopupCloseButtonDetector.detect,
-                };
-            },
-            async verifyAfterRun(ctx) {
-                const player = await ctx.adapter.queryTarget(
-                    targets.gameHost,
-                    ctx.signal,
-                );
-
-                if (
-                    player.found &&
-                    player.visible === true &&
-                    ctx.setVariable
-                ) {
-                    clearAttendancePhases(ctx);
-                    markAttendanceFlowSuccess(ctx);
-                    return true;
-                }
-
-                return false;
-            },
-        },
+        ...attendanceFlow.transitions,
     ],
 };

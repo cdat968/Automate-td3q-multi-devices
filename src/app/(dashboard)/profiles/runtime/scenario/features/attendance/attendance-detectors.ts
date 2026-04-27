@@ -1,7 +1,11 @@
 import { templates } from "../../../vision/templates";
 import { createTemplateMatchDetector } from "../../../vision/create-template-match-detector";
 import { AttendanceConfig } from "./attendance-config";
-import { AttendanceVars, readBoolVar } from "./attendance-runtime";
+import {
+    AttendanceVars,
+    isAttendanceArmedFor,
+    getAttendanceArmMeta,
+} from "./attendance-runtime";
 
 export const attendanceTomorrowReceiveTemplate = (
     templates as typeof templates & {
@@ -28,27 +32,15 @@ export const attendancePopupVerifyDetector = createTemplateMatchDetector({
     template: templates.attendanceHeader,
     screenshotLabel: "detect_attendance_popup_open",
     overlayLabel: "attendance-popup-verify",
-    shouldRun: (ctx) => readBoolVar(ctx, AttendanceVars.verifyArmed),
+    shouldRun: (ctx) => isAttendanceArmedFor(ctx, "open_popup"),
     skipReason: "attendance_verify_not_armed",
     roi: AttendanceConfig.detectors.popupHeader.roi,
     buildMessage: ({ matched, score }) =>
         `ATTENDANCE POPUP VERIFY => ${matched ? "MATCH" : "MISS"} (${score.toFixed(3)})`,
     buildMeta: ({ ctx, matched }) => ({
-        armed: true,
-        armedAtIteration: ctx.variables[AttendanceVars.verifyArmedAtIteration],
         retryAttempt: Number(ctx.variables[AttendanceVars.retryCount] ?? "0"),
-        sourceClickIteration: Number(
-            ctx.variables[AttendanceVars.lastClickAtIteration] ?? "0",
-        ),
-        sourceDetectorRunId:
-            ctx.variables[AttendanceVars.lastClickSourceDetectorRunId],
-        sourceRetryAttempt: Number(
-            ctx.variables[AttendanceVars.lastClickRetryAttempt] ?? "0",
-        ),
-        verifyDeadlineIteration: Number(
-            ctx.variables[AttendanceVars.verifyDeadlineIteration] ?? "0",
-        ),
         verifyMatched: matched,
+        ...getAttendanceArmMeta(ctx),
     }),
 });
 

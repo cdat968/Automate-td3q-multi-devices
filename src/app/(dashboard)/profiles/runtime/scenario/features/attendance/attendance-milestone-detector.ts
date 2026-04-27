@@ -8,6 +8,18 @@ import {
 } from "./attendance-detectors";
 import { decodePng } from "./attendance-vision";
 
+function getOverlayShapeLabel(shape: DiagnosticOverlayMeta["shapes"][number]) {
+    if ("label" in shape) {
+        return shape.label;
+    }
+
+    if (shape.type === "text") {
+        return shape.text;
+    }
+
+    return undefined;
+}
+
 export const attendanceMilestoneClaimableDetector = {
     async detect(ctx: ExecutionContext) {
         const results: Array<{
@@ -158,6 +170,19 @@ export const attendanceMilestoneClaimableDetector = {
 
         if (!matched) {
             console.log("[MILESTONE][NO_MATCH] full scan zero match");
+
+            console.log("[MILESTONE][RETURN_OVERLAYS]", {
+                matched: false,
+                hasScreenshotPath: !!overlayScreenshotPath,
+                attachmentsCount: overlayAttachments.length,
+                overlaysCount: debugOverlay ? 1 : 0,
+                shapeCount: debugOverlay?.shapes?.length ?? 0,
+                labels:
+                    debugOverlay?.shapes
+                        ?.map(getOverlayShapeLabel)
+                        .filter((label): label is string => Boolean(label)) ??
+                    [],
+            });
 
             return {
                 matched: false,

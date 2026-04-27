@@ -159,7 +159,7 @@ export const AttendanceConfig = {
     },
 
     waits: {
-        afterGameLoadMs: 2500,
+        afterGameLoadMs: 5000,
         afterAttendanceClickShortMs: 200,
         afterAttendanceClickSettleMs: 700,
         afterDailyRewardCloseMs: 100,

@@ -190,7 +190,7 @@ export function createTemplateMatchDetector(
                         height: result.roiRect.height,
                         color: "blue",
                         label: "detector-roi",
-                        lineWidth: 2,
+                        lineWidth: 6,
                     },
                     ...(matchBox
                         ? [
@@ -203,7 +203,7 @@ export function createTemplateMatchDetector(
                                   color: "green" as const,
                                   label:
                                       config.overlayLabel ?? config.detectorId,
-                                  lineWidth: 3,
+                                  lineWidth: 5,
                               },
                           ]
                         : []),
