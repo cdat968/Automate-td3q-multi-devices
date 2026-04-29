@@ -1,14 +1,10 @@
 import type { ExecutionContext, ScenarioDefinition } from "../scenario-types";
 import type { RuntimeTargetRef } from "../../actions/action-types";
-import { DiagnosticOverlayMeta } from "../../../diagnostics/diagnostic-types";
 import { AttendanceDailyCellClassification } from "../features/attendance/attendance-daily-classification";
 import { createAttendanceFlow } from "../features/attendance/attendance-flow";
 import { analyzeAttendanceDaily } from "../features/attendance/attendance-daily-analyzer";
 import { decideAttendanceDailyState } from "../features/attendance/attendance-daily-decision";
-import {
-    OverlayShape,
-    OverlayColor,
-} from "../../../diagnostics/overlay/overlay-types";
+import { attachAttendanceDailyEvidence } from "../features/attendance/attendance-daily-overlays";
 
 const targets = {
     emailInput: {
@@ -83,185 +79,9 @@ async function classifyAttendanceTodayCell(
     ctx: ExecutionContext,
 ): Promise<AttendanceDailyCellClassification> {
     const analysis = await analyzeAttendanceDaily(ctx);
-    const baseClassification = decideAttendanceDailyState(analysis);
+    const classification = decideAttendanceDailyState(analysis);
 
-    if (analysis.status !== "OK") {
-        return baseClassification;
-    }
-
-    const { facts, debug, evidence } = analysis;
-    const screenshotPath = evidence.screenshotPath;
-
-    const scan = {
-        found: facts.found,
-        gridBox: facts.gridBox!,
-        cells: facts.cells,
-        bestCell: facts.bestCell,
-        bestRatio: facts.bestRatio,
-        secondBestRatio: facts.secondBestRatio,
-        winnerMargin: facts.winnerMargin,
-    };
-
-    const tomorrowOverlayShapes = debug.tomorrowOverlayShapes;
-    const checkinOverlayShapes = debug.checkinOverlayShapes;
-    const ticketOverlayShapes = debug.tickOverlayShapes;
-
-    // const gridOverlay: DiagnosticOverlayMeta[] = screenshotPath
-    //     ? [
-    //           {
-    //               purpose: "debug_view",
-    //               screenshotPath,
-    //               shapes: [
-    //                   {
-    //                       type: "box",
-    //                       x: scan.gridBox.x,
-    //                       y: scan.gridBox.y,
-    //                       width: scan.gridBox.width,
-    //                       height: scan.gridBox.height,
-    //                       color: "blue",
-    //                       label: "attendance-grid-roi",
-    //                       lineWidth: 2,
-    //                   },
-    //                   ...scan.cells.map((cell) => {
-    //                       let color:
-    //                           | "green"
-    //                           | "yellow"
-    //                           | "red"
-    //                           | "white"
-    //                           | "gray"
-    //                           | "blue"
-    //                           | "orange" = "white";
-    //                       let label = `cell #${cell.index}`;
-    //                       let lineWidth = 1;
-
-    //                       if (cell.index === todayCell?.index) {
-    //                           color = "green";
-    //                           label = `[TODAY] ${label}`;
-    //                           lineWidth = 3;
-    //                       } else if (cell.index === tomorrowCell?.index) {
-    //                           color = "yellow";
-    //                           label = `[TOMORROW] ${label}`;
-    //                           lineWidth = 3;
-    //                       } else if (cell.index === scan.bestCell?.index) {
-    //                           color = "orange";
-    //                           label = `[BEST] ${label}`;
-    //                           lineWidth = 2;
-    //                       }
-
-    //                       return {
-    //                           type: "box" as const,
-    //                           x: cell.x,
-    //                           y: cell.y,
-    //                           width: cell.width,
-    //                           height: cell.height,
-    //                           color,
-    //                           label,
-    //                           lineWidth,
-    //                       };
-    //                   }),
-    //                   ...tomorrowOverlayShapes,
-    //                   ...checkinOverlayShapes,
-    //                   ...ticketOverlayShapes,
-    //               ],
-    //               renderNote: "attendance grid scan (all 30 cells)",
-    //           },
-    //       ]
-    //     : [];
-    const gridRoiShape: OverlayShape = {
-        type: "box",
-        x: scan.gridBox.x,
-        y: scan.gridBox.y,
-        width: scan.gridBox.width,
-        height: scan.gridBox.height,
-        color: "blue",
-        label: "attendance-grid-roi",
-        lineWidth: 4,
-    };
-
-    const cellOverlayShapes: OverlayShape[] = scan.cells.map((cell) => {
-        let color: OverlayColor = "white";
-        let label = `cell #${cell.index}`;
-        let lineWidth = 3;
-
-        if (cell.index === baseClassification.meta.todayCellIndex) {
-            color = "green";
-            label = `[TODAY] ${label}`;
-            lineWidth = 4;
-        } else if (cell.index === baseClassification.meta.tomorrowCellIndex) {
-            color = "yellow";
-            label = `[TOMORROW] ${label}`;
-            lineWidth = 4;
-        } else if (cell.index === scan.bestCell?.index) {
-            color = "orange";
-            label = `[BEST] ${label}`;
-            lineWidth = 4;
-        }
-
-        return {
-            type: "box",
-            x: cell.x,
-            y: cell.y,
-            width: cell.width,
-            height: cell.height,
-            color,
-            label,
-            lineWidth,
-        };
-    });
-
-    const gridOverlay: DiagnosticOverlayMeta[] = screenshotPath
-        ? [
-              {
-                  purpose: "debug_view",
-                  screenshotPath,
-                  shapes: [
-                      gridRoiShape,
-                      ...cellOverlayShapes,
-                      ...tomorrowOverlayShapes,
-                      ...checkinOverlayShapes,
-                      ...ticketOverlayShapes,
-                  ],
-                  renderNote: "attendance grid scan (all 30 cells)",
-              },
-          ]
-        : [];
-
-    console.log(
-        "[ATTENDANCE][GRID_OVERLAY_COUNTS]",
-        JSON.stringify({
-            baseCells: scan.cells.length,
-            tomorrowOverlayCount: tomorrowOverlayShapes.length,
-            checkinOverlayCount: checkinOverlayShapes.length,
-            tickOverlayCount: ticketOverlayShapes.length,
-            totalShapes: gridOverlay[0]?.shapes?.length ?? 0,
-        }),
-    );
-
-    const finalOverlays = gridOverlay;
-
-    console.log(
-        "[ATTENDANCE][CLASSIFY_RETURN_OVERLAYS]",
-        JSON.stringify(
-            finalOverlays.map((o, i) => ({
-                index: i,
-                purpose: o.purpose,
-                screenshotPath: o.screenshotPath,
-                shapeCount: o.shapes?.length ?? 0,
-                labels: (o.shapes ?? [])
-                    .filter((s) => s.type === "box")
-                    .map((s) => s.label ?? null),
-            })),
-            null,
-            2,
-        ),
-    );
-
-    return {
-        ...baseClassification,
-        screenshotPath,
-        attachments: evidence.attachments,
-        overlays: gridOverlay,
-    };
+    return attachAttendanceDailyEvidence(analysis, classification);
 }
 
 export const td3qBrowserScenario: ScenarioDefinition = {

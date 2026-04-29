@@ -1,9 +1,7 @@
 import type { ExecutionContext } from "../../scenario-types";
-import {
-    buildAttendanceSemanticDebugOverlay,
-    type AttendanceDailyCellClassification,
-} from "./attendance-daily-classification";
+import { type AttendanceDailyCellClassification } from "./attendance-daily-classification";
 import { getOrCreateAttendanceDailyClassification } from "./attendance-daily-cache";
+import { buildAttendanceSemanticDebugOverlay } from "./attendance-daily-overlays";
 
 export type ClassifyAttendanceTodayCell = (
     ctx: ExecutionContext,

@@ -1,5 +1,8 @@
 import type { RuntimeTargetRef } from "../../../actions/action-types";
-import type { ScenarioDefinition } from "../../scenario-types";
+import type {
+    ExecutionContext,
+    ScenarioDefinition,
+} from "../../scenario-types";
 import { AttendanceConfig } from "./attendance-config";
 import {
     armAttendance,
@@ -32,6 +35,8 @@ import {
     createAttendanceTodayDetectors,
     type ClassifyAttendanceTodayCell,
 } from "./attendance-today-detectors";
+import { getOrCreateAttendanceMilestoneScan } from "./attendance-milestone-cache";
+import { forwardMilestoneScanEvidence } from "./attendance-milestone-evidence";
 
 type DetectionRule = ScenarioDefinition["detectionRules"][number];
 type Transition = ScenarioDefinition["transitions"][number];
@@ -45,14 +50,9 @@ export type AttendanceFlowDefinition = {
     transitions: Transition[];
 };
 
-function resolveEvidenceScreenshotPath(result: {
-    screenshotPath?: string;
-    overlays?: Array<{ screenshotPath?: string }>;
-}): string | undefined {
-    return (
-        result.screenshotPath ??
-        result.overlays?.find((overlay) => overlay.screenshotPath)
-            ?.screenshotPath
+async function scanAttendanceMilestoneCached(ctx: ExecutionContext) {
+    return getOrCreateAttendanceMilestoneScan(ctx, () =>
+        attendanceMilestoneClaimableDetector.detect(ctx),
     );
 }
 
@@ -142,7 +142,7 @@ export function createAttendanceFlow(params: {
                 const popup = await attendancePopupAnchorDetector.detect(ctx);
                 if (!popup.matched) return false;
 
-                return attendanceMilestoneClaimableDetector.detect(ctx);
+                return scanAttendanceMilestoneCached(ctx);
             },
         },
 
@@ -184,8 +184,7 @@ export function createAttendanceFlow(params: {
                 const popup = await attendancePopupAnchorDetector.detect(ctx);
                 if (!popup.matched) return false;
 
-                const result =
-                    await attendanceMilestoneClaimableDetector.detect(ctx);
+                const result = await scanAttendanceMilestoneCached(ctx);
 
                 if (result.matched) {
                     return false;
@@ -197,37 +196,32 @@ export function createAttendanceFlow(params: {
                     disarmAttendance(ctx, "success");
                 }
 
-                const evidenceScreenshotPath =
-                    resolveEvidenceScreenshotPath(result);
+                const evidence = forwardMilestoneScanEvidence(result, {
+                    detectorId: "attendance-milestone-done-wrapper",
+                    extraMeta: {
+                        ...armMeta,
+                    },
+                });
 
                 // console.log("[MILESTONE][DONE_RULE_FORWARD_OVERLAYS]", {
                 //     hasResultScreenshotPath: !!result.screenshotPath,
-                //     resolvedScreenshotPath: milestoneScreenshotPath ?? null,
-                //     attachmentsCount: result.attachments?.length ?? 0,
-                //     overlaysCount: milestoneOverlays?.length ?? 0,
+                //     resolvedScreenshotPath: evidence.screenshotPath ?? null,
+                //     attachmentsCount: evidence.attachments?.length ?? 0,
+                //     overlaysCount: evidence.overlays?.length ?? 0,
                 //     overlayShapeCounts:
-                //         milestoneOverlays?.map(
+                //         evidence.overlays?.map(
                 //             (overlay) => overlay.shapes?.length ?? 0,
-                //         ) ?? [],
-                //     overlayScreenshotPaths:
-                //         milestoneOverlays?.map(
-                //             (overlay) => overlay.screenshotPath ?? null,
                 //         ) ?? [],
                 // });
 
                 return {
                     matched: true,
                     confidence: 1,
-                    screenshotPath: evidenceScreenshotPath,
-                    attachments: result.attachments,
-                    overlays: result.overlays,
+                    screenshotPath: evidence.screenshotPath,
+                    attachments: evidence.attachments,
+                    overlays: evidence.overlays,
                     message: "ATTENDANCE MILESTONE DONE",
-                    meta: {
-                        ...(result.meta ?? {}),
-                        ...armMeta,
-                        detectorId: "attendance-milestone-done-wrapper",
-                        milestoneScanMatched: result.matched,
-                    },
+                    meta: evidence.meta,
                 };
             },
         },
@@ -251,43 +245,35 @@ export function createAttendanceFlow(params: {
                 const popup = await attendancePopupAnchorDetector.detect(ctx);
                 if (!popup.matched) return false;
 
-                const result =
-                    await attendanceMilestoneClaimableDetector.detect(ctx);
+                const result = await scanAttendanceMilestoneCached(ctx);
 
                 if (result.matched) {
                     return false;
                 }
 
-                const evidenceScreenshotPath =
-                    resolveEvidenceScreenshotPath(result);
+                const evidence = forwardMilestoneScanEvidence(result, {
+                    detectorId: "attendance-close-ready-wrapper",
+                });
 
-                // console.log("[MILESTONE][CLOSE_READY_RULE_FORWARD_OVERLAYS]", {
+                // console.log("[MILESTONE][CLOSE_READY_RULE_FORWARD_EVIDENCE]", {
                 //     hasResultScreenshotPath: !!result.screenshotPath,
-                //     resolvedScreenshotPath: milestoneScreenshotPath ?? null,
-                //     attachmentsCount: result.attachments?.length ?? 0,
-                //     overlaysCount: milestoneOverlays?.length ?? 0,
+                //     resolvedScreenshotPath: evidence.screenshotPath ?? null,
+                //     attachmentsCount: evidence.attachments?.length ?? 0,
+                //     overlaysCount: evidence.overlays?.length ?? 0,
                 //     overlayShapeCounts:
-                //         milestoneOverlays?.map(
+                //         evidence.overlays?.map(
                 //             (overlay) => overlay.shapes?.length ?? 0,
-                //         ) ?? [],
-                //     overlayScreenshotPaths:
-                //         milestoneOverlays?.map(
-                //             (overlay) => overlay.screenshotPath ?? null,
                 //         ) ?? [],
                 // });
 
                 return {
                     matched: true,
                     confidence: 1,
-                    screenshotPath: evidenceScreenshotPath,
-                    attachments: result.attachments,
-                    overlays: result.overlays,
+                    screenshotPath: evidence.screenshotPath,
+                    attachments: evidence.attachments,
+                    overlays: evidence.overlays,
                     message: "ATTENDANCE CLOSE READY",
-                    meta: {
-                        ...(result.meta ?? {}),
-                        detectorId: "attendance-close-ready-wrapper",
-                        milestoneScanMatched: result.matched,
-                    },
+                    meta: evidence.meta,
                 };
             },
         },
@@ -731,7 +717,7 @@ export function createAttendanceFlow(params: {
                     kind: "CLICK_FROM_DETECTION",
                     screenshotBefore: true,
                     screenshotAfter: true,
-                    detectTarget: attendanceMilestoneClaimableDetector.detect,
+                    detectTarget: (ctx) => scanAttendanceMilestoneCached(ctx),
                 };
             },
         },
