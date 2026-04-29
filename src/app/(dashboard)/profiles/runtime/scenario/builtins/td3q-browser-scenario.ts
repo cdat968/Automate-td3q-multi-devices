@@ -1,7 +1,7 @@
 import type { ExecutionContext, ScenarioDefinition } from "../scenario-types";
 import type { RuntimeTargetRef } from "../../actions/action-types";
 import { AttendanceDailyCellClassification } from "../features/attendance/attendance-daily-classification";
-import { createAttendanceFlow } from "../features/attendance/attendance-flow";
+import { createAttendanceScenario } from "./td3q/attendance";
 import { analyzeAttendanceDaily } from "../features/attendance/attendance-daily-analyzer";
 import { decideAttendanceDailyState } from "../features/attendance/attendance-daily-decision";
 import { attachAttendanceDailyEvidence } from "../features/attendance/attendance-daily-overlays";
@@ -68,7 +68,7 @@ const targets = {
     } satisfies RuntimeTargetRef,
 };
 
-const attendanceFlow = createAttendanceFlow({
+const attendanceScenario = createAttendanceScenario({
     targets: {
         gameHost: targets.gameHost,
     },
@@ -109,7 +109,7 @@ export const td3qBrowserScenario: ScenarioDefinition = {
             },
         },
 
-        ...attendanceFlow.detectionRules,
+        ...attendanceScenario.detectionRules,
         //game error
         {
             id: "detect-game-error",
@@ -331,6 +331,6 @@ export const td3qBrowserScenario: ScenarioDefinition = {
                 };
             },
         },
-        ...attendanceFlow.transitions,
+        ...attendanceScenario.transitions,
     ],
 };
