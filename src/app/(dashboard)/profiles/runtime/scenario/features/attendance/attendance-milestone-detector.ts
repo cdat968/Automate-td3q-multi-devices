@@ -1,24 +1,12 @@
-import type { ExecutionContext } from "../../scenario-types";
-import type { DiagnosticOverlayMeta } from "../../../../diagnostics/diagnostic-types";
+import type { ExecutionContext } from "@scenario/scenario-types";
+import type { DiagnosticOverlayMeta } from "@diagnostics/diagnostic-types";
 import { AttendanceConfig } from "./attendance-config";
 import {
     MILESTONE_SLOT_ROIS,
     milestoneDetectors,
     type MilestoneDetectorResult,
 } from "./attendance-detectors";
-import { decodePng } from "./attendance-vision";
-
-function getOverlayShapeLabel(shape: DiagnosticOverlayMeta["shapes"][number]) {
-    if ("label" in shape) {
-        return shape.label;
-    }
-
-    if (shape.type === "text") {
-        return shape.text;
-    }
-
-    return undefined;
-}
+import { decodePng, getOverlayShapeLabel } from "../../visual";
 
 export const attendanceMilestoneClaimableDetector = {
     async detect(ctx: ExecutionContext) {

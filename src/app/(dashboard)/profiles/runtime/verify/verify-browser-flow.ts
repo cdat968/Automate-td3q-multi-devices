@@ -4,13 +4,8 @@ import { PersistentChromiumSession } from "../adapters/browser/persistent-chromi
 import { BrowserRuntimeAdapter } from "../adapters/browser/browser-runtime-adapter";
 import { BROWSER_CONFIG } from "../adapters/browser/browser-runtime.config";
 
-import { ExecutionEngine } from "../engine/execution-engine";
-import { RuleBasedStateDetector } from "../engine/state-detector";
-import { PriorityTransitionResolver } from "../engine/transition-resolver";
-import { AdapterBackedActionExecutor } from "../engine/action-executor";
-
 import { InMemoryTimelineRecorder } from "../timeline/timeline-console-reporter";
-import { td3qBrowserScenario } from "../scenario/builtins/td3q-browser-scenario";
+import { executeTd3qBrowserScenario, td3qBrowserScenario } from "../scenario/builtins/td3q-browser-scenario";
 import { InMemoryDiagnosticCollector } from "../../diagnostics/diagnostic-collector";
 
 async function verifyBrowserFlow(): Promise<number> {
@@ -42,24 +37,12 @@ async function verifyBrowserFlow(): Promise<number> {
     const timeline = new InMemoryTimelineRecorder();
     const diagnostics = new InMemoryDiagnosticCollector();
 
-    const engine = new ExecutionEngine(
-        (scenario) => new RuleBasedStateDetector(scenario.detectionRules),
-        (scenario) => new PriorityTransitionResolver(scenario.transitions),
-        new AdapterBackedActionExecutor(),
-        {
-            maxIterations: td3qBrowserScenario.maxIterations ?? 30,
-            idleIterationLimit: td3qBrowserScenario.idleIterationLimit ?? 5,
-            iterationDelayMs: 800,
-        },
-    );
-
     try {
         console.log("[VERIFY][ACTION] Navigate to entry URL...");
         await adapter.navigate(BROWSER_CONFIG.targetUrl);
 
-        const result = await engine.run({
+        const result = await executeTd3qBrowserScenario({
             adapter,
-            scenario: td3qBrowserScenario,
             timeline,
             diagnostics,
             variables: {
@@ -68,6 +51,9 @@ async function verifyBrowserFlow(): Promise<number> {
                 ATTENDANCE_VERIFY_ARMED: "false",
                 ATTENDANCE_VERIFY_ARMED_AT_ITERATION: "",
             },
+            maxIterations: td3qBrowserScenario.maxIterations ?? 30,
+            idleIterationLimit: td3qBrowserScenario.idleIterationLimit ?? 5,
+            iterationDelayMs: 800,
         });
 
         console.log("\n" + "=".repeat(50));

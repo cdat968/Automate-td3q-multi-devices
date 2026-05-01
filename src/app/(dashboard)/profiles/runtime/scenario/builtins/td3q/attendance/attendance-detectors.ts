@@ -13,7 +13,33 @@ import {
 } from "../../../features/attendance/attendance-today-detectors";
 
 import { getOrCreateAttendanceMilestoneScan } from "../../../features/attendance/attendance-milestone-cache";
-import type { ExecutionContext } from "../../../scenario-types";
+import type { ExecutionContext } from "@scenario/scenario-types";
+import {
+    normalizeAttendanceDetectionResult,
+    type AttendanceDetectionResult,
+} from "./attendance-detector-contract";
+
+type RawAttendanceDetectionResult = boolean | AttendanceDetectionResult;
+
+type RawAttendanceDetector = {
+    detect: (ctx: ExecutionContext) => Promise<RawAttendanceDetectionResult>;
+};
+
+type NormalizedDetector = {
+    detect: (ctx: ExecutionContext) => Promise<AttendanceDetectionResult>;
+};
+
+function wrapDetector(
+    detector: RawAttendanceDetector,
+    detectorId: string,
+): NormalizedDetector {
+    return {
+        async detect(ctx) {
+            const result = await detector.detect(ctx);
+            return normalizeAttendanceDetectionResult(result, { detectorId });
+        },
+    };
+}
 
 export function getAttendanceDetectors(
     classifyAttendanceTodayCell: ClassifyAttendanceTodayCell,
@@ -21,22 +47,51 @@ export function getAttendanceDetectors(
     const { attendanceTodayClaimableDetector, attendanceTodayDoneDetector } =
         createAttendanceTodayDetectors(classifyAttendanceTodayCell);
 
-    async function scanAttendanceMilestoneCached(ctx: ExecutionContext) {
-        return getOrCreateAttendanceMilestoneScan(ctx, () =>
+    async function scanAttendanceMilestoneCached(
+        ctx: ExecutionContext,
+    ): Promise<AttendanceDetectionResult> {
+        const result = await getOrCreateAttendanceMilestoneScan(ctx, () =>
             attendanceMilestoneClaimableDetector.detect(ctx),
         );
+        return normalizeAttendanceDetectionResult(result, {
+            detectorId: "attendance.milestone.cached-scan",
+        });
     }
 
     return {
-        attendanceIcon: attendanceIconDetector,
-        popupVerify: attendancePopupVerifyDetector,
-        popupAnchor: attendancePopupAnchorDetector,
-        todayClaimable: attendanceTodayClaimableDetector,
-        todayDone: attendanceTodayDoneDetector,
-        dailyRewardPopup: attendanceDailyRewardPopupDetector,
-        dailyRewardClose: attendanceDailyRewardPopupCloseDetector,
-        milestoneClaimable: attendanceMilestoneClaimableDetector,
-        popupCloseButton: attendancePopupCloseButtonDetector,
+        attendanceIcon: wrapDetector(attendanceIconDetector, "attendance.icon"),
+        popupVerify: wrapDetector(
+            attendancePopupVerifyDetector,
+            "attendance.popup-verify",
+        ),
+        popupAnchor: wrapDetector(
+            attendancePopupAnchorDetector,
+            "attendance.popup-anchor",
+        ),
+        todayClaimable: wrapDetector(
+            attendanceTodayClaimableDetector,
+            "attendance.today-claimable",
+        ),
+        todayDone: wrapDetector(
+            attendanceTodayDoneDetector,
+            "attendance.today-done",
+        ),
+        dailyRewardPopup: wrapDetector(
+            attendanceDailyRewardPopupDetector,
+            "attendance.daily-reward-popup",
+        ),
+        dailyRewardClose: wrapDetector(
+            attendanceDailyRewardPopupCloseDetector,
+            "attendance.daily-reward-close",
+        ),
+        milestoneClaimable: wrapDetector(
+            attendanceMilestoneClaimableDetector,
+            "attendance.milestone-claimable",
+        ),
+        popupCloseButton: wrapDetector(
+            attendancePopupCloseButtonDetector,
+            "attendance.popup-close-button",
+        ),
         scanAttendanceMilestoneCached,
     };
 }

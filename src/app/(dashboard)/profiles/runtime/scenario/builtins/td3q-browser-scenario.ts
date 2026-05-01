@@ -5,7 +5,7 @@ import { createAttendanceScenario } from "./td3q/attendance";
 import { analyzeAttendanceDaily } from "../features/attendance/attendance-daily-analyzer";
 import { decideAttendanceDailyState } from "../features/attendance/attendance-daily-decision";
 import { attachAttendanceDailyEvidence } from "../features/attendance/attendance-daily-overlays";
-
+import { runScenario, type RunScenarioOptions } from "../scenario-runner";
 const targets = {
     emailInput: {
         id: "login.email",
@@ -334,3 +334,12 @@ export const td3qBrowserScenario: ScenarioDefinition = {
         ...attendanceScenario.transitions,
     ],
 };
+
+export async function executeTd3qBrowserScenario(
+    options: Omit<RunScenarioOptions, "scenario">,
+) {
+    return runScenario({
+        ...options,
+        scenario: td3qBrowserScenario,
+    });
+}

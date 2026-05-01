@@ -5,3 +5,5 @@ export * from "./attendance-detectors";
 export * from "./attendance-actions";
 export * from "./attendance-transitions";
 export * from "./attendance-scenario";
+export * from "./td3q-attendance-preset";
+export * from "./attendance-manifest";

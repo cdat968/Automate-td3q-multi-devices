@@ -1,5 +1,10 @@
 import type { ScenarioDefinition } from "../../../scenario-types";
 import {
+    createAttendanceNoMatchResult,
+    createAttendanceNoMatchFromResult,
+    isAttendanceMatched,
+} from "./attendance-detector-contract";
+import {
     AttendanceVars,
     AttendanceConfig,
     ATTENDANCE_STATE,
@@ -38,17 +43,32 @@ export function getAttendanceDetectionRules(
     detectors: AttendanceDetectors,
     targets: AttendanceFlowTargets,
 ): DetectionRule[] {
+    //createAttendanceNoMatchResult
     return [
         {
             id: "detect-attendance-daily-ready",
             state: ATTENDANCE_STATE.ATTENDANCE_DAILY_READY,
             async detect(ctx) {
                 if (!readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-daily-ready",
+                        message: "attendance_popup_not_confirmed",
+                        meta: { popupConfirmed: false },
+                    });
                 }
 
                 const popup = await detectors.popupAnchor.detect(ctx);
-                if (!popup.matched) return false;
+                if (!isAttendanceMatched(popup)) {
+                    return createAttendanceNoMatchFromResult(popup, {
+                        detectorId: "detect-attendance-daily-ready",
+                        message: "attendance_popup_anchor_not_matched",
+                        meta: {
+                            popupMatched: popup.matched,
+                            popupMessage: popup.message,
+                            popupMeta: popup.meta,
+                        },
+                    });
+                }
 
                 return detectors.todayClaimable.detect(ctx);
             },
@@ -59,15 +79,22 @@ export function getAttendanceDetectionRules(
             state: ATTENDANCE_STATE.ATTENDANCE_DAILY_REWARD_POPUP_OPEN,
             async detect(ctx) {
                 if (!readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-daily-reward-popup-open",
+                        message: "attendance_popup_not_confirmed",
+                        meta: { popupConfirmed: false },
+                    });
                 }
 
                 if (!isAttendanceArmedFor(ctx, "claim_daily")) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-daily-reward-popup-open",
+                        message: "not_armed_for_claim_daily",
+                    });
                 }
 
                 const closeMatch = await detectors.dailyRewardClose.detect(ctx);
-                if (closeMatch.matched) {
+                if (isAttendanceMatched(closeMatch)) {
                     const armMeta = getAttendanceArmMeta(ctx);
                     disarmAttendance(ctx, "success");
 
@@ -84,7 +111,7 @@ export function getAttendanceDetectionRules(
 
                 const armMeta = getAttendanceArmMeta(ctx);
 
-                if (result.matched) {
+                if (isAttendanceMatched(result)) {
                     disarmAttendance(ctx, "success");
                 }
 
@@ -103,15 +130,26 @@ export function getAttendanceDetectionRules(
             state: ATTENDANCE_STATE.ATTENDANCE_MILESTONE_READY,
             async detect(ctx) {
                 if (!readBoolVar(ctx, AttendanceVars.milestonePhase)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-milestone-ready",
+                        message: "not_in_milestone_phase",
+                    });
                 }
 
                 if (!readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-milestone-ready",
+                        message: "attendance_popup_not_confirmed",
+                    });
                 }
 
                 const popup = await detectors.popupAnchor.detect(ctx);
-                if (!popup.matched) return false;
+                if (!isAttendanceMatched(popup)) {
+                    return createAttendanceNoMatchFromResult(popup, {
+                        detectorId: "detect-attendance-milestone-ready",
+                        message: "attendance_popup_anchor_not_matched",
+                    });
+                }
 
                 return detectors.scanAttendanceMilestoneCached(ctx);
             },
@@ -122,15 +160,26 @@ export function getAttendanceDetectionRules(
             state: ATTENDANCE_STATE.ATTENDANCE_DAILY_DONE,
             async detect(ctx) {
                 if (readBoolVar(ctx, AttendanceVars.milestonePhase)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-daily-done",
+                        message: "in_milestone_phase",
+                    });
                 }
 
                 if (!readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-daily-done",
+                        message: "attendance_popup_not_confirmed",
+                    });
                 }
 
                 const popup = await detectors.popupAnchor.detect(ctx);
-                if (!popup.matched) return false;
+                if (!isAttendanceMatched(popup)) {
+                    return createAttendanceNoMatchFromResult(popup, {
+                        detectorId: "detect-attendance-daily-done",
+                        message: "attendance_popup_anchor_not_matched",
+                    });
+                }
 
                 return detectors.todayDone.detect(ctx);
             },
@@ -141,25 +190,43 @@ export function getAttendanceDetectionRules(
             state: ATTENDANCE_STATE.ATTENDANCE_MILESTONE_DONE,
             async detect(ctx) {
                 if (readBoolVar(ctx, AttendanceVars.closePhase)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-milestone-done",
+                        message: "in_close_phase",
+                    });
                 }
 
                 if (!readBoolVar(ctx, AttendanceVars.milestonePhase)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-milestone-done",
+                        message: "not_in_milestone_phase",
+                    });
                 }
 
                 if (!readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-milestone-done",
+                        message: "attendance_popup_not_confirmed",
+                    });
                 }
 
                 const popup = await detectors.popupAnchor.detect(ctx);
-                if (!popup.matched) return false;
+                if (!isAttendanceMatched(popup)) {
+                    return createAttendanceNoMatchFromResult(popup, {
+                        detectorId: "detect-attendance-milestone-done",
+                        message: "attendance_popup_anchor_not_matched",
+                    });
+                }
 
                 const result =
                     await detectors.scanAttendanceMilestoneCached(ctx);
 
-                if (result.matched) {
-                    return false;
+                if (isAttendanceMatched(result)) {
+                    return createAttendanceNoMatchFromResult(result, {
+                        detectorId: "detect-attendance-milestone-done",
+                        message: "milestone_claimable",
+                        meta: { milestoneMatched: true },
+                    });
                 }
 
                 const armMeta = getAttendanceArmMeta(ctx);
@@ -192,25 +259,43 @@ export function getAttendanceDetectionRules(
             state: ATTENDANCE_STATE.ATTENDANCE_CLOSE_READY,
             async detect(ctx) {
                 if (!readBoolVar(ctx, AttendanceVars.milestonePhase)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-close-ready",
+                        message: "not_in_milestone_phase",
+                    });
                 }
 
                 if (!readBoolVar(ctx, AttendanceVars.popupConfirmed)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-close-ready",
+                        message: "attendance_popup_not_confirmed",
+                    });
                 }
 
                 if (!readBoolVar(ctx, AttendanceVars.closePhase)) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-close-ready",
+                        message: "not_in_close_phase",
+                    });
                 }
 
                 const popup = await detectors.popupAnchor.detect(ctx);
-                if (!popup.matched) return false;
+                if (!isAttendanceMatched(popup)) {
+                    return createAttendanceNoMatchFromResult(popup, {
+                        detectorId: "detect-attendance-close-ready",
+                        message: "attendance_popup_anchor_not_matched",
+                    });
+                }
 
                 const result =
                     await detectors.scanAttendanceMilestoneCached(ctx);
 
-                if (result.matched) {
-                    return false;
+                if (isAttendanceMatched(result)) {
+                    return createAttendanceNoMatchFromResult(result, {
+                        detectorId: "detect-attendance-close-ready",
+                        message: "milestone_claimable",
+                        meta: { milestoneMatched: true },
+                    });
                 }
 
                 const evidence = forwardMilestoneScanEvidence(result, {
@@ -237,7 +322,7 @@ export function getAttendanceDetectionRules(
                     const anchor = await detectors.popupAnchor.detect(ctx);
 
                     if (
-                        anchor.matched &&
+                        isAttendanceMatched(anchor) &&
                         isAttendanceArmedFor(ctx, "close_daily_reward")
                     ) {
                         const armMeta = getAttendanceArmMeta(ctx);
@@ -256,14 +341,17 @@ export function getAttendanceDetectionRules(
                 }
 
                 if (!isAttendanceArmedFor(ctx, "open_popup")) {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-popup-open",
+                        message: "not_armed_for_open_popup",
+                    });
                 }
 
                 const result = await detectors.popupVerify.detect(ctx);
 
                 const armMeta = getAttendanceArmMeta(ctx);
 
-                if (result.matched) {
+                if (isAttendanceMatched(result)) {
                     ctx.setVariable?.(AttendanceVars.retryCount, "0");
                     ctx.setVariable?.(AttendanceVars.verifyArmed, "false");
                     ctx.setVariable?.(
@@ -289,7 +377,14 @@ export function getAttendanceDetectionRules(
             state: ATTENDANCE_STATE.ATTENDANCE_FLOW_DONE,
             async detect(ctx) {
                 if (ctx.variables[AttendanceVars.flowResult] !== "success") {
-                    return false;
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-flow-done",
+                        message: "flow_result_not_success",
+                        meta: {
+                            flowResult:
+                                ctx.variables[AttendanceVars.flowResult],
+                        },
+                    });
                 }
 
                 const player = await ctx.adapter.queryTarget(
@@ -297,8 +392,15 @@ export function getAttendanceDetectionRules(
                     ctx.signal,
                 );
 
+                if (!(player.found && player.visible === true)) {
+                    return createAttendanceNoMatchResult({
+                        detectorId: "detect-attendance-flow-done",
+                        message: "game_host_not_visible",
+                    });
+                }
+
                 return {
-                    matched: player.found && player.visible === true,
+                    matched: true,
                     message: "attendance_flow_success",
                     meta: {
                         flowResult: ctx.variables[AttendanceVars.flowResult],
@@ -370,7 +472,10 @@ export function getAttendanceDetectionRules(
                     };
                 }
 
-                return false;
+                return createAttendanceNoMatchResult({
+                    detectorId: "detect-attendance-open-failed",
+                    message: "no_failure_condition_met",
+                });
             },
         },
     ];

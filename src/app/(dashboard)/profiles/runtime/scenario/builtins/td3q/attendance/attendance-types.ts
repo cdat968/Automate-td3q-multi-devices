@@ -1,4 +1,4 @@
-import type { RuntimeTargetRef } from "../../../../actions/action-types";
+import type { RuntimeTargetRef } from "@runtime/actions/action-types";
 
 export type AttendanceFlowTargets = {
     gameHost: RuntimeTargetRef;
