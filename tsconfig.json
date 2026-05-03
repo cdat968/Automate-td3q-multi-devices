@@ -23,13 +23,15 @@
         "paths": {
             // "@/*": ["./src/*"]
             "@/*": ["src/*"],
+            "@components/*": ["src/components/*"],
             "@profiles/*": ["src/app/(dashboard)/profiles/*"],
             "@diagnostics/*": ["src/app/(dashboard)/profiles/diagnostics/*"],
             "@runtime/*": ["src/app/(dashboard)/profiles/runtime/*"],
             "@scenario/*": ["src/app/(dashboard)/profiles/runtime/scenario/*"],
             "@td3q/*": [
                 "src/app/(dashboard)/profiles/runtime/scenario/builtins/td3q/*"
-            ]
+            ],
+            "@devices/*": ["src/app/(dashboard)/devices/*"]
         }
     },
     "include": [
